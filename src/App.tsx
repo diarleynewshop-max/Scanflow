@@ -21,6 +21,7 @@ const Analytics = lazy(() => import("./pages/Analytics"));
 const EmManutencao = lazy(() => import("./pages/EmManutencao"));
 const Compras = lazy(() => import("./pages/Compras"));
 const ConsultaPreco = lazy(() => import("./pages/ConsultaPreco"));
+const MeusPedidos = lazy(() => import("./pages/MeusPedidos"));
 
 const queryClient = new QueryClient();
 
@@ -51,6 +52,12 @@ const App = () => (
             } />
             <Route path="/consulta-preco" element={
               <DesktopShell pageTitle="Consulta Preço"><ConsultaPreco /></DesktopShell>
+            } />
+
+            <Route path="/meus-pedidos" element={
+              <ProtectedRoute requiredRole={['operador', 'compras', 'admin', 'super']}>
+                <DesktopShell pageTitle="Meus Pedidos"><MeusPedidos /></DesktopShell>
+              </ProtectedRoute>
             } />
 
             {/* Rotas protegidas por role */}

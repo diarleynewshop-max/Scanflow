@@ -20,6 +20,23 @@ interface PedidoFilaRow {
   clickup_task_id: string | null;
 }
 
+interface MeuPedidoRow {
+  id: string;
+  titulo: string | null;
+  pessoa: string | null;
+  listeiro: string | null;
+  conferente: string | null;
+  status: string;
+  created_at: string | null;
+  updated_at: string | null;
+  data_conferencia: string | null;
+  total_itens: number | null;
+  resumo_separado: number | null;
+  resumo_nao_tem: number | null;
+  resumo_parcial: number | null;
+  resumo_pendente: number | null;
+}
+
 interface PedidoFilaItemRow {
   id: string;
   pedido_id: string;
@@ -55,6 +72,23 @@ export interface PedidoFilaItem {
   status: 'separado' | 'nao_tem' | 'nao_tem_tudo' | 'pendente';
   photo: string | null;
   ordem: number;
+}
+
+export interface MeuPedidoResumo {
+  id: string;
+  titulo: string;
+  pessoa: string;
+  listeiro: string;
+  conferente: string;
+  status: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+  dataConferencia: string | null;
+  totalItens: number;
+  resumoSeparado: number;
+  resumoNaoTem: number;
+  resumoParcial: number;
+  resumoPendente: number;
 }
 
 export interface FecharConferenciaItemPayload {
@@ -226,6 +260,81 @@ export async function listarPedidosParaConferencia(
     emAndamento: pedido.status === 'em_andamento',
     clickupTaskId: pedido.clickup_task_id ?? null,
   }));
+}
+
+function mapMeuPedido(row: MeuPedidoRow): MeuPedidoResumo {
+  return {
+    id: row.id,
+    titulo: String(row.titulo ?? row.id).trim() || row.id,
+    pessoa: String(row.pessoa ?? '').trim(),
+    listeiro: String(row.listeiro ?? '').trim(),
+    conferente: String(row.conferente ?? '').trim(),
+    status: String(row.status ?? '').trim() || 'pendente',
+    createdAt: row.created_at ?? null,
+    updatedAt: row.updated_at ?? null,
+    dataConferencia: row.data_conferencia ?? null,
+    totalItens: toInt(row.total_itens),
+    resumoSeparado: toInt(row.resumo_separado),
+    resumoNaoTem: toInt(row.resumo_nao_tem),
+    resumoParcial: toInt(row.resumo_parcial),
+    resumoPendente: toInt(row.resumo_pendente),
+  };
+}
+
+export async function listarMeusPedidos(
+  empresa: string,
+  flag: string,
+  pessoa: string
+): Promise<MeuPedidoResumo[]> {
+  if (!isSupabaseConfigured) return [];
+
+  const pessoaNormalizada = String(pessoa ?? '').trim();
+  if (!pessoaNormalizada) return [];
+
+  const selectColumns = [
+    'id',
+    'titulo',
+    'pessoa',
+    'listeiro',
+    'conferente',
+    'status',
+    'created_at',
+    'updated_at',
+    'data_conferencia',
+    'total_itens',
+    'resumo_separado',
+    'resumo_nao_tem',
+    'resumo_parcial',
+    'resumo_pendente',
+  ].join(',');
+
+  const criarQuery = () =>
+    supabase
+      .from('pedidos')
+      .select(selectColumns)
+      .eq('empresa', normalizarEmpresa(empresa))
+      .eq('flag', normalizarFlag(flag))
+      .order('created_at', { ascending: false });
+
+  const [{ data: porPessoa, error: errorPessoa }, { data: porListeiro, error: errorListeiro }] = await Promise.all([
+    criarQuery().eq('pessoa', pessoaNormalizada),
+    criarQuery().eq('listeiro', pessoaNormalizada),
+  ]);
+
+  if (errorPessoa) throw errorPessoa;
+  if (errorListeiro) throw errorListeiro;
+
+  const pedidos = [...((porPessoa ?? []) as MeuPedidoRow[]), ...((porListeiro ?? []) as MeuPedidoRow[])]
+    .reduce<Map<string, MeuPedidoResumo>>((acc, row) => {
+      acc.set(row.id, mapMeuPedido(row));
+      return acc;
+    }, new Map());
+
+  return Array.from(pedidos.values()).sort((a, b) => {
+    const timeA = Date.parse(a.updatedAt ?? a.createdAt ?? '') || 0;
+    const timeB = Date.parse(b.updatedAt ?? b.createdAt ?? '') || 0;
+    return timeB - timeA;
+  });
 }
 
 export async function reservarPedido(

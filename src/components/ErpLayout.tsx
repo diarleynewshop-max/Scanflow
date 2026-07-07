@@ -67,6 +67,7 @@ export function ErpLayout({
         { icon: HomeIcon, label: "Início", path: "/" },
         { icon: ScanBarcode, label: "Escanear", path: "/scanner" },
         { icon: ClipboardList, label: "Lista", path: "/scanner?tab=list" },
+        ...((flag === 'loja' || isPriv) ? [{ icon: Package, label: "Meus Pedidos", path: "/meus-pedidos" }] : []),
         ...((flag === 'cd' || isPriv) ? [{ icon: GitCompare, label: "Conferência", path: "/scanner?tab=conference" }] : []),
         { icon: BadgeDollarSign, label: "Consulta Preço", path: "/consulta-preco" },
       ],

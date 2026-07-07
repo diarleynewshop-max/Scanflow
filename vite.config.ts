@@ -61,6 +61,13 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  define: {
+    // Fallback pra quando a Vercel so tem SUPABASE_URL/SUPABASE_ANON_KEY (sem o
+    // prefixo VITE_, ex.: integracao nativa Vercel<->Supabase que nao deixa
+    // renomear). So injeta URL + anon key — NUNCA a service_role.
+    __SUPABASE_URL_FALLBACK__: JSON.stringify(process.env.SUPABASE_URL || ""),
+    __SUPABASE_ANON_KEY_FALLBACK__: JSON.stringify(process.env.SUPABASE_ANON_KEY || ""),
+  },
   build: {
     outDir: "dist",
     rollupOptions: {
