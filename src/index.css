@@ -1,0 +1,195 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700&family=DM+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* ☀️ TEMA CLARO (Exatamente o seu original) */
+  :root {
+    --background: 40 30% 97%;
+    --foreground: 30 15% 10%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 30 15% 10%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 30 15% 10%;
+
+    --primary: 30 12% 12%;
+    --primary-foreground: 40 30% 97%;
+
+    --secondary: 35 20% 92%;
+    --secondary-foreground: 30 15% 20%;
+
+    --muted: 35 15% 90%;
+    --muted-foreground: 30 10% 52%;
+
+    --accent: 35 15% 90%;
+    --accent-foreground: 30 15% 20%;
+
+    --destructive: 12 80% 45%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 35 18% 88%;
+    --input: 35 18% 88%;
+    --ring: 30 12% 12%;
+
+    --radius: 0.75rem;
+
+    --warning: 30 90% 40%;
+    --warning-foreground: 0 0% 100%;
+
+    --success: 152 46% 30%;
+    --success-foreground: 0 0% 100%;
+
+    --font-sans: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+    --font-serif: 'Playfair Display', ui-serif, Georgia, serif;
+    --font-mono: 'DM Mono', ui-monospace, monospace;
+
+    --shadow-2xs: 0 1px 2px hsl(30 15% 10% / 0.04);
+    --shadow-xs:  0 1px 3px hsl(30 15% 10% / 0.06);
+    --shadow-sm:  0 1px 3px hsl(30 15% 10% / 0.08), 0 1px 2px hsl(30 15% 10% / 0.06);
+    --shadow:     0 2px 6px hsl(30 15% 10% / 0.08), 0 1px 2px hsl(30 15% 10% / 0.06);
+    --shadow-md:  0 4px 12px hsl(30 15% 10% / 0.10), 0 2px 4px hsl(30 15% 10% / 0.06);
+    --shadow-lg:  0 8px 24px hsl(30 15% 10% / 0.12), 0 4px 8px hsl(30 15% 10% / 0.06);
+    --shadow-xl:  0 16px 40px hsl(30 15% 10% / 0.14);
+    --shadow-2xl: 0 24px 60px hsl(30 15% 10% / 0.18);
+  }
+
+  /* 🌙 TEMA ESCURO (Novo, desenhado para combinar com sua paleta) */
+  .dark {
+    --background: 30 10% 8%; /* Fundo grafite quente */
+    --foreground: 40 30% 97%; /* Texto claro */
+
+    --card: 30 12% 12%; /* Cards um pouco mais claros que o fundo */
+    --card-foreground: 40 30% 97%;
+
+    --popover: 30 12% 12%;
+    --popover-foreground: 40 30% 97%;
+
+    --primary: 40 30% 97%; /* Botões principais claros no modo escuro */
+    --primary-foreground: 30 12% 12%;
+
+    --secondary: 30 15% 16%;
+    --secondary-foreground: 40 30% 97%;
+
+    --muted: 30 15% 16%;
+    --muted-foreground: 35 15% 70%;
+
+    --accent: 30 15% 16%;
+    --accent-foreground: 40 30% 97%;
+
+    --destructive: 12 80% 55%; /* Vermelho ligeiramente mais brilhante no dark */
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 30 15% 20%;
+    --input: 30 15% 20%;
+    --ring: 35 15% 70%;
+
+    --warning: 30 90% 50%;
+    --warning-foreground: 30 15% 10%;
+
+    --success: 152 46% 40%;
+    --success-foreground: 0 0% 100%;
+
+    /* No modo escuro, as sombras precisam ser de cor preta pura para aparecerem */
+    --shadow-2xs: 0 1px 2px hsl(0 0% 0% / 0.3);
+    --shadow-xs:  0 1px 3px hsl(0 0% 0% / 0.4);
+    --shadow-sm:  0 1px 3px hsl(0 0% 0% / 0.5), 0 1px 2px hsl(0 0% 0% / 0.4);
+    --shadow:     0 2px 6px hsl(0 0% 0% / 0.5), 0 1px 2px hsl(0 0% 0% / 0.4);
+    --shadow-md:  0 4px 12px hsl(0 0% 0% / 0.6), 0 2px 4px hsl(0 0% 0% / 0.4);
+    --shadow-lg:  0 8px 24px hsl(0 0% 0% / 0.7), 0 4px 8px hsl(0 0% 0% / 0.4);
+    --shadow-xl:  0 16px 40px hsl(0 0% 0% / 0.8);
+    --shadow-2xl: 0 24px 60px hsl(0 0% 0% / 0.9);
+  }
+
+  :root.empresa-facil,
+  .dark.empresa-facil {
+    --primary: 24 100% 50%; /* #FF6600 */
+    --primary-foreground: 0 0% 100%;
+    --ring: 24 100% 50%;
+    --warning: 24 100% 50%;
+  }
+
+  :root.empresa-soye {
+    --primary: 220 9% 46%;
+    --primary-foreground: 0 0% 100%;
+    --ring: 220 9% 46%;
+  }
+
+  .dark.empresa-soye {
+    --primary: 220 9% 72%;
+    --primary-foreground: 30 12% 12%;
+    --ring: 220 9% 72%;
+  }
+}
+
+* { box-sizing: border-box; }
+
+/* Adicionado transição suave para não "piscar" seco na troca de cor */
+body { 
+  font-family: var(--font-sans); 
+  background: hsl(var(--background)); 
+  color: hsl(var(--foreground)); 
+  transition: background-color 0.3s ease, color 0.3s ease; 
+}
+
+.font-serif { font-family: var(--font-serif) !important; }
+.font-mono  { font-family: var(--font-mono) !important; }
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+html.light-mode *,
+html.light-mode *::before,
+html.light-mode *::after {
+  animation-duration: 0s !important;
+  animation-delay: 0s !important;
+  transition: none !important;
+  box-shadow: none !important;
+}
+
+html.light-mode body {
+  text-rendering: optimizeSpeed;
+}
+
+html.light-mode [style*="backdropFilter"],
+html.light-mode [style*="backdrop-filter"] {
+  backdrop-filter: none !important;
+}
+
+/* ────────────────────────────────────────────────────────────────
+ * ERP Desktop: força páginas legadas a preencherem o main area
+ * Pages mobile usam max-w-md mx-auto (corredor 448px centrado).
+ * Dentro do ERP shell isso vira um card deslocado no meio do nada.
+ * ──────────────────────────────────────────────────────────────── */
+
+/* O wrapper da página (direct child do main) ocupa tudo */
+.erp-main > div {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  min-height: 0 !important;
+}
+
+/* Esconde o header mobile interno (ArrowLeft Voltar + título grande) —
+   o topbar do ERP já mostra o nome da página */
+.erp-main > div > header:first-child,
+.erp-main > div > div > header:first-of-type {
+  display: none !important;
+}
+
+/* Containers internos com max-w-md/sm/xs param de constranger */
+.erp-main .max-w-md,
+.erp-main .max-w-sm,
+.erp-main .max-w-xs {
+  max-width: 100% !important;
+}
+
+/* min-h-screen interno colide com o overflow do main */
+.erp-main .min-h-screen {
+  min-height: 0 !important;
+}
