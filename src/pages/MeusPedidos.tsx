@@ -1,15 +1,29 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   ClipboardList,
   Clock3,
+  Package,
   PackageCheck,
   RefreshCw,
   UserRound,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
-import { listarMeusPedidos, type MeuPedidoResumo } from "@/lib/pedidosFila";
+import { carregarItensDoPedido, listarMeusPedidos, type MeuPedidoResumo, type PedidoFilaItem } from "@/lib/pedidosFila";
 import { isSupabaseConfigured, supabase } from "@/lib/supabaseClient";
+
+const ITEM_STATUS_META: Record<string, { label: string; classes: string }> = {
+  separado: { label: "Separado", classes: "border-emerald-200 bg-emerald-50 text-emerald-800" },
+  nao_tem: { label: "Nao tem", classes: "border-rose-200 bg-rose-50 text-rose-800" },
+  nao_tem_tudo: { label: "Parcial", classes: "border-amber-200 bg-amber-50 text-amber-800" },
+  pendente: { label: "Pendente", classes: "border-slate-200 bg-slate-50 text-slate-700" },
+};
+
+function getItemStatusMeta(status: string) {
+  return ITEM_STATUS_META[status] ?? ITEM_STATUS_META.pendente;
+}
 
 type StatusKey = "pendente" | "analisado" | "em_andamento" | "concluido";
 
@@ -70,6 +84,10 @@ export default function MeusPedidos() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [expandidoId, setExpandidoId] = useState<string | null>(null);
+  const [itensPorPedido, setItensPorPedido] = useState<Record<string, PedidoFilaItem[]>>({});
+  const [carregandoItensId, setCarregandoItensId] = useState<string | null>(null);
+  const [erroItensId, setErroItensId] = useState<string | null>(null);
 
   const empresa = loginSalvo?.empresa ?? "NEWSHOP";
   const flag = loginSalvo?.flag ?? "loja";
@@ -113,6 +131,28 @@ export default function MeusPedidos() {
     void carregar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [empresa, flag, pessoa]);
+
+  const toggleItens = async (pedidoId: string) => {
+    if (expandidoId === pedidoId) {
+      setExpandidoId(null);
+      return;
+    }
+
+    setExpandidoId(pedidoId);
+    if (itensPorPedido[pedidoId]) return;
+
+    setCarregandoItensId(pedidoId);
+    setErroItensId(null);
+    try {
+      const itens = await carregarItensDoPedido(pedidoId);
+      setItensPorPedido((prev) => ({ ...prev, [pedidoId]: itens }));
+    } catch (err) {
+      console.error("[MeusPedidos] Falha ao carregar itens do pedido:", err);
+      setErroItensId(pedidoId);
+    } finally {
+      setCarregandoItensId(null);
+    }
+  };
 
   useEffect(() => {
     if (!loginSalvo?.nomePessoa || !isSupabaseConfigured) return;
@@ -262,6 +302,65 @@ export default function MeusPedidos() {
                     {pedido.status === "analisado" && "Pedido pronto para conferencia."}
                     {pedido.status === "em_andamento" && "Pedido reservado em outra sessao ou em conferencia agora."}
                     {pedido.status === "pendente" && "Pedido ainda nao foi liberado para conferencia."}
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => void toggleItens(pedido.id)}
+                  className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
+                >
+                  {expandidoId === pedido.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  {expandidoId === pedido.id ? "Ocultar itens" : `Ver itens (${pedido.totalItens})`}
+                </button>
+
+                {expandidoId === pedido.id && (
+                  <div className="mt-3 rounded-2xl border border-border bg-background p-3">
+                    {carregandoItensId === pedido.id ? (
+                      <div className="space-y-2">
+                        {Array.from({ length: 3 }).map((_, index) => (
+                          <div key={index} className="h-10 animate-pulse rounded-lg bg-muted" />
+                        ))}
+                      </div>
+                    ) : erroItensId === pedido.id ? (
+                      <p className="text-sm text-destructive">Nao foi possivel carregar os itens deste pedido.</p>
+                    ) : (itensPorPedido[pedido.id]?.length ?? 0) === 0 ? (
+                      <p className="text-sm text-muted-foreground">Nenhum item encontrado.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {itensPorPedido[pedido.id].map((item) => {
+                          const itemStatus = getItemStatusMeta(item.status);
+                          return (
+                            <div
+                              key={item.id}
+                              className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border px-3 py-2 text-sm"
+                            >
+                              <div className="flex min-w-0 items-center gap-2">
+                                {item.photo ? (
+                                  <img src={item.photo} alt={item.codigo} className="h-9 w-9 flex-shrink-0 rounded-lg object-cover" />
+                                ) : (
+                                  <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-muted">
+                                    <Package className="h-4 w-4 text-muted-foreground" />
+                                  </div>
+                                )}
+                                <div className="min-w-0">
+                                  <div className="truncate font-mono text-xs font-bold text-foreground">{item.codigo}</div>
+                                  <div className="truncate text-xs text-muted-foreground">{item.sku || item.secao || "-"}</div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <span className="text-xs text-muted-foreground">
+                                  {item.quantidadeReal ?? "-"} / {item.quantidadePedida}
+                                </span>
+                                <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-bold ${itemStatus.classes}`}>
+                                  {itemStatus.label}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 )}
               </article>

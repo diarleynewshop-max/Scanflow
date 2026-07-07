@@ -913,6 +913,7 @@ const ConferenceView = ({ onBack, empresa: empresaProp, flag: flagProp, modoDesk
       if (pedidoId) {
         // Conferência veio da fila (Supabase): conclui o MESMO pedido reservado.
         await fecharConferenciaExistente(pedidoId, {
+          empresa,
           conferente,
           tempoSegundos: elapsedSeconds,
           itens: itensFechamento,

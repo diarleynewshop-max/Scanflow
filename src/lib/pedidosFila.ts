@@ -102,6 +102,7 @@ export interface FecharConferenciaItemPayload {
 }
 
 export interface FecharConferenciaPayload {
+  empresa: string;
   conferente: string;
   tempoSegundos?: number | null;
   itens: FecharConferenciaItemPayload[];
@@ -151,6 +152,68 @@ function isStorageUrl(value: string | null | undefined): boolean {
   return Boolean(value && value.includes(STORAGE_URL_MARKER));
 }
 
+function isFotoBase64(value: string | null | undefined): boolean {
+  return Boolean(value && value.startsWith('data:image/'));
+}
+
+function dataUrlParaBlob(dataUrl: string): { blob: Blob; contentType: string } | null {
+  const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  if (!m) return null;
+  const contentType = m[1];
+  const bin = atob(m[2]);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+  return { blob: new Blob([bytes], { type: contentType }), contentType };
+}
+
+const FOTO_CONFERENCIA_BUCKET = 'compras-fotos';
+
+// Sobe a foto tirada no app (data URL) pro Storage e devolve a URL publica.
+// Best-effort: se falhar, loga e devolve null (o item so fica sem foto, nao
+// derruba o envio/fechamento da conferencia).
+async function uploadFotoConferencia(empresa: EmpresaKey, codigo: string, photo: string): Promise<string | null> {
+  const conv = dataUrlParaBlob(photo);
+  if (!conv) return null;
+
+  const safeCodigo = String(codigo ?? '').trim().replace(/[^A-Za-z0-9_-]/g, '_') || 'sem-codigo';
+  const sufixo = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const path = `conferencia/${empresa}/${safeCodigo}-${sufixo}.jpg`;
+
+  try {
+    const up = await supabase.storage.from(FOTO_CONFERENCIA_BUCKET).upload(path, conv.blob, {
+      contentType: conv.contentType,
+      upsert: true,
+    });
+    if (up.error) throw up.error;
+    return supabase.storage.from(FOTO_CONFERENCIA_BUCKET).getPublicUrl(path).data.publicUrl;
+  } catch (error) {
+    console.warn('[pedidosFila] Falha ao subir foto pro Storage (item fica sem foto):', codigo, error);
+    return null;
+  }
+}
+
+// Resolve a foto de um item pra uma URL de Storage: se ja for URL, usa direto;
+// se for base64 (foto tirada agora no app), sobe pro Storage; senao, null.
+async function resolverFotoParaStorage(
+  empresa: EmpresaKey,
+  codigo: string,
+  photo: string | null | undefined
+): Promise<string | null> {
+  if (!isSupabaseConfigured) return null;
+  if (isStorageUrl(photo)) return photo as string;
+  if (isFotoBase64(photo)) return uploadFotoConferencia(empresa, codigo, photo as string);
+  return null;
+}
+
+async function resolverFotosEmLote<T>(
+  empresa: EmpresaKey,
+  itens: T[],
+  getCodigo: (item: T) => string,
+  getFoto: (item: T) => string | null | undefined
+): Promise<Array<string | null>> {
+  return Promise.all(itens.map((item) => resolverFotoParaStorage(empresa, getCodigo(item), getFoto(item))));
+}
+
 function chunk<T>(items: T[], size: number): T[][] {
   const chunks: T[][] = [];
   for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
@@ -186,14 +249,17 @@ function resolveConferenceId(payload: EnviarListaParaConferenciaPayload): string
   return `lista-${hashString(key)}`;
 }
 
-function buildProdutoCatalogoPayload(produtos: PedidoFilaProduto[]): Array<Record<string, string | null>> {
+function buildProdutoCatalogoPayload(
+  produtos: PedidoFilaProduto[],
+  fotosResolvidas: Array<string | null>
+): Array<Record<string, string | null>> {
   return produtos
-    .map((produto) => ({
+    .map((produto, index) => ({
       codigo: String(produto.barcode ?? '').trim() || null,
       sku: String(produto.sku ?? '').trim() || null,
       descricao: String(produto.description ?? '').trim() || null,
       secao: String(produto.secao ?? '').trim() || null,
-      foto_url: isStorageUrl(produto.photo) ? produto.photo : null,
+      foto_url: fotosResolvidas[index] ?? null,
     }))
     .filter((produto) => produto.codigo || produto.sku);
 }
@@ -207,10 +273,11 @@ function toStatusConferencia(
   return 'pendente';
 }
 
-function buildPedidoItemRows(
+async function buildPedidoItemRows(
+  empresa: EmpresaKey,
   pedidoId: string,
   itens: FecharConferenciaItemPayload[]
-): Array<{
+): Promise<Array<{
   pedido_id: string;
   codigo: string;
   sku: string | null;
@@ -220,7 +287,14 @@ function buildPedidoItemRows(
   status: 'separado' | 'nao_tem' | 'nao_tem_tudo' | 'pendente';
   foto_url: string | null;
   ordem: number;
-}> {
+}>> {
+  const fotosResolvidas = await resolverFotosEmLote(
+    empresa,
+    itens,
+    (item) => String(item.codigo ?? '').trim(),
+    (item) => item.photo
+  );
+
   return itens
     .map((item, index) => ({
       pedido_id: pedidoId,
@@ -230,7 +304,7 @@ function buildPedidoItemRows(
       quantidade_pedida: toInt(item.quantidadePedida),
       quantidade_real: item.quantidadeReal == null ? null : toInt(item.quantidadeReal),
       status: toStatusConferencia(item.status),
-      foto_url: isStorageUrl(item.photo) ? item.photo : null,
+      foto_url: fotosResolvidas[index] ?? null,
       ordem: index + 1,
     }))
     .filter((item) => item.codigo);
@@ -453,6 +527,13 @@ export async function enviarListaParaConferencia(
   if (!pedidoId) throw new Error('Supabase nao retornou o ID do pedido');
 
   try {
+    const fotosResolvidas = await resolverFotosEmLote(
+      empresa,
+      payload.produtos,
+      (produto) => String(produto.barcode ?? '').trim(),
+      (produto) => produto.photo
+    );
+
     const rows = payload.produtos
       .map((produto, index) => ({
         pedido_id: pedidoId,
@@ -463,7 +544,7 @@ export async function enviarListaParaConferencia(
         quantidade_pedida: toInt(produto.quantidade),
         quantidade_real: null,
         status: 'pendente',
-        foto_url: isStorageUrl(produto.photo) ? produto.photo : null,
+        foto_url: fotosResolvidas[index] ?? null,
         ordem: index + 1,
       }))
       .filter((item) => item.codigo);
@@ -480,7 +561,7 @@ export async function enviarListaParaConferencia(
     const { error: rpcError } = await supabase.rpc('recalcular_resumo_pedido', { p_pedido_id: pedidoId });
     if (rpcError) throw rpcError;
 
-    const produtosCatalogo = buildProdutoCatalogoPayload(payload.produtos);
+    const produtosCatalogo = buildProdutoCatalogoPayload(payload.produtos, fotosResolvidas);
     if (produtosCatalogo.length > 0) {
       const { error: upsertError } = await supabase.rpc('upsert_produtos', { p: produtosCatalogo });
       if (upsertError) {
@@ -545,7 +626,8 @@ export async function fecharConferenciaExistente(
     throw new Error('Conferencia sem itens para concluir');
   }
 
-  const novosItens = buildPedidoItemRows(pedidoId, payload.itens);
+  const empresa = normalizarEmpresa(payload.empresa);
+  const novosItens = await buildPedidoItemRows(empresa, pedidoId, payload.itens);
   if (novosItens.length === 0) {
     throw new Error('Nenhum item valido para concluir pedido');
   }
@@ -581,7 +663,8 @@ export async function fecharConferenciaExistente(
       const { error: restoreDeleteError } = await supabase.from('pedido_itens').delete().eq('pedido_id', pedidoId);
       if (restoreDeleteError) throw restoreDeleteError;
 
-      const itensRestore = buildPedidoItemRows(
+      const itensRestore = await buildPedidoItemRows(
+        empresa,
         pedidoId,
         itensOriginais.map((item) => ({
           codigo: item.codigo,
