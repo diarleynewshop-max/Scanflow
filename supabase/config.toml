@@ -1,1 +1,7 @@
-project_id = ""
+project_id = "sknyigbnlbbpbbmsbbmc"
+
+[functions.erp-proxy]
+verify_jwt = false
+
+[functions.erp-image-proxy]
+verify_jwt = false

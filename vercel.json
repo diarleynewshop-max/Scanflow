@@ -1,9 +1,5 @@
 {
   "rewrites": [
     { "source": "/((?!api/).*)", "destination": "/index.html" }
-  ],
-  "functions": {
-    "api/erp-proxy.ts": { "maxDuration": 30 },
-    "api/erp-image-proxy.ts": { "maxDuration": 30 }
-  }
+  ]
 }

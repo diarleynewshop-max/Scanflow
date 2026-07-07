@@ -1,4 +1,10 @@
-import type { VercelRequest, VercelResponse } from "@vercel/node";
+// Edge Function: erp-image-proxy
+// Resolve e devolve a foto de um produto do Varejo Facil, testando varios endpoints
+// candidatos ate achar um que responda com uma imagem. Porta 1:1 de
+// server/varejo-facil/erp-image-proxy.ts (Vercel).
+//
+// Publico (verify_jwt = false) — usado direto em <img src="...">, que nao consegue
+// mandar header de autenticacao. Igual a rota da Vercel de hoje.
 
 type EmpresaKey = "NEWSHOP" | "FACIL" | "SOYE";
 
@@ -10,12 +16,14 @@ const HOSTS: Record<EmpresaKey, string> = {
 
 const tokenCache = new Map<string, string>();
 
-function getSingle(value: string | string[] | undefined): string {
-  return Array.isArray(value) ? value[0] ?? "" : value ?? "";
-}
+const CORS_HEADERS: Record<string, string> = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "GET, OPTIONS",
+};
 
-function normalizeEmpresa(value: string | string[] | undefined): EmpresaKey {
-  const normalized = getSingle(value).trim().toUpperCase();
+function normalizeEmpresa(value: string | null): EmpresaKey {
+  const normalized = (value ?? "").trim().toUpperCase();
   if (normalized.includes("SOYE")) return "SOYE";
   if (normalized.includes("FACIL")) return "FACIL";
   return "NEWSHOP";
@@ -26,16 +34,11 @@ function erpBaseEmpresa(empresa: EmpresaKey): EmpresaKey {
 }
 
 function getEnv(empresa: EmpresaKey, key: "URL" | "USERNAME" | "PASSWORD" | "TOKEN"): string {
-  // Credencial especifica da empresa (ex.: SOYE) sempre vence a da baseEmpresa
-  // (FACIL) — SOYE e FACIL compartilham host, mas podem ter tokens diferentes.
   const baseEmpresa = erpBaseEmpresa(empresa);
   return (
-    process.env[`ERP_API_${key}_${empresa}`] ||
-    process.env[`VITE_ERP_API_${key}_${empresa}`] ||
-    process.env[`ERP_API_${key}_${baseEmpresa}`] ||
-    process.env[`VITE_ERP_API_${key}_${baseEmpresa}`] ||
-    process.env[`ERP_API_${key}`] ||
-    process.env[`VITE_ERP_API_${key}`] ||
+    Deno.env.get(`ERP_API_${key}_${empresa}`) ||
+    Deno.env.get(`ERP_API_${key}_${baseEmpresa}`) ||
+    Deno.env.get(`ERP_API_${key}`) ||
     ""
   );
 }
@@ -135,121 +138,89 @@ function buildImageCandidates(baseUrl: string, src: string, produtoId?: string):
   return candidates.map((candidate) => `${baseUrl}${candidate}`);
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== "GET") {
-    return res.status(405).send("Metodo nao permitido");
+Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: CORS_HEADERS });
   }
 
-  const empresa = normalizeEmpresa(req.query.empresa);
-  const src = getSingle(req.query.src);
-  const produtoId = getSingle(req.query.produtoId).trim();
+  if (req.method !== "GET") {
+    return new Response("Metodo nao permitido", { status: 405, headers: CORS_HEADERS });
+  }
+
+  const url = new URL(req.url);
+  const empresa = normalizeEmpresa(url.searchParams.get("empresa"));
+  const src = url.searchParams.get("src") ?? "";
+  const produtoId = (url.searchParams.get("produtoId") ?? "").trim();
+  const format = url.searchParams.get("format") ?? "";
 
   if (!src) {
-    return res.status(400).send("src obrigatorio");
+    return new Response("src obrigatorio", { status: 400, headers: CORS_HEADERS });
   }
 
   try {
     const baseUrl = resolveBaseUrl(empresa);
     const token = await getAccessToken(empresa, baseUrl);
     let response: Response | null = null;
-    let lastNonImage: { contentType: string; preview: string } | null = null;
 
-    const tried: Array<{ url: string; status: number; contentType: string }> = [];
-
-    for (const url of buildImageCandidates(baseUrl, src, produtoId)) {
-      const candidateResponse = await fetch(url, {
+    for (const candidateUrl of buildImageCandidates(baseUrl, src, produtoId)) {
+      const candidateResponse = await fetch(candidateUrl, {
         headers: {
           Authorization: token,
           Accept: "image/*,*/*",
         },
       });
       const contentType = candidateResponse.headers.get("content-type") || "";
-      tried.push({ url, status: candidateResponse.status, contentType });
 
       if (candidateResponse.status === 401) {
         tokenCache.clear();
       }
 
-      if (!candidateResponse.ok) {
-        continue;
-      }
+      if (!candidateResponse.ok) continue;
 
       if (contentType.startsWith("image/")) {
         response = candidateResponse;
         break;
       }
-
-      const previewBuffer = Buffer.from(await candidateResponse.arrayBuffer());
-      lastNonImage = {
-        contentType,
-        preview: previewBuffer.toString("utf8", 0, Math.min(previewBuffer.length, 300)),
-      };
     }
 
     if (!response) {
-      console.warn("[erp-image-proxy] Imagem do ERP nao encontrada", {
-        empresa,
-        produtoId,
-        src,
-        tried: tried.map((item) => ({
-          status: item.status,
-          contentType: item.contentType,
-          url: item.url,
-        })),
-      });
-      return res.status(422).json({
-        error: "Imagem do ERP nao encontrada por URL/ID",
-        src,
-        tried,
-        lastNonImage,
-      });
-    }
-
-    if (response.status === 401) {
-      tokenCache.clear();
-    }
-
-    if (!response.ok) {
-      return res.status(response.status).send(`Falha ao carregar imagem (${response.status})`);
+      return new Response(
+        JSON.stringify({ error: "Imagem do ERP nao encontrada por URL/ID", src }),
+        { status: 422, headers: { "Content-Type": "application/json", ...CORS_HEADERS } }
+      );
     }
 
     const contentType = response.headers.get("content-type") || "image/jpeg";
-    const buffer = Buffer.from(await response.arrayBuffer());
+    const buffer = new Uint8Array(await response.arrayBuffer());
 
     if (!contentType.startsWith("image/")) {
-      console.warn("[erp-image-proxy] URL do ERP nao retornou imagem", {
-        empresa,
-        produtoId,
-        src,
-        contentType,
-      });
-      return res.status(422).json({
-        error: "URL do ERP nao retornou imagem",
-        contentType,
-        preview: buffer.toString("utf8", 0, Math.min(buffer.length, 300)),
-      });
+      return new Response(
+        JSON.stringify({ error: "URL do ERP nao retornou imagem", contentType }),
+        { status: 422, headers: { "Content-Type": "application/json", ...CORS_HEADERS } }
+      );
     }
 
-    console.info("[erp-image-proxy] Imagem encontrada", {
-      empresa,
-      produtoId,
-      src,
-      contentType,
-      bytes: buffer.length,
-    });
-
-    if (req.query.format === "data-url") {
+    if (format === "data-url") {
       const mimeType = contentType.split(";")[0]?.trim() || "image/jpeg";
-      return res.status(200).json({
-        dataUrl: `data:${mimeType};base64,${buffer.toString("base64")}`,
-      });
+      let binary = "";
+      for (let i = 0; i < buffer.length; i += 1) binary += String.fromCharCode(buffer[i]);
+      const base64 = btoa(binary);
+      return new Response(
+        JSON.stringify({ dataUrl: `data:${mimeType};base64,${base64}` }),
+        { status: 200, headers: { "Content-Type": "application/json", ...CORS_HEADERS } }
+      );
     }
 
-    res.setHeader("Content-Type", contentType);
-    res.setHeader("Cache-Control", "public, max-age=3600, s-maxage=86400, stale-while-revalidate=3600");
-    return res.status(200).send(buffer);
+    return new Response(buffer, {
+      status: 200,
+      headers: {
+        "Content-Type": contentType,
+        "Cache-Control": "public, max-age=3600, s-maxage=86400, stale-while-revalidate=3600",
+        ...CORS_HEADERS,
+      },
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erro desconhecido";
-    return res.status(500).send(message);
+    return new Response(message, { status: 500, headers: CORS_HEADERS });
   }
-}
+});

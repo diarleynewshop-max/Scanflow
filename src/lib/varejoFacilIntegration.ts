@@ -173,9 +173,17 @@ const normalizarEmpresaVarejoFacil = (empresa?: string | null): VarejoFacilEmpre
   return "NEWSHOP";
 };
 
+// Base das Edge Functions do Supabase (erp-proxy/erp-image-proxy substituem as antigas
+// rotas /api/erp-proxy e /api/erp-image-proxy da Vercel — mesma URL/projeto do
+// VITE_SUPABASE_URL, so trocando o path).
+const getSupabaseFunctionsBase = (): string => {
+  const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined) || "";
+  return supabaseUrl ? `${supabaseUrl.replace(/\/$/, "")}/functions/v1` : "";
+};
+
 const fetchJson = async <T>(path: string, contexto: VarejoFacilLookupContext = {}) => {
   const empresa = normalizarEmpresaVarejoFacil(contexto.empresa);
-  const url = `/api/erp-proxy?empresa=${empresa.toLowerCase()}&path=${encodeURIComponent(path)}`;
+  const url = `${getSupabaseFunctionsBase()}/erp-proxy?empresa=${empresa.toLowerCase()}&path=${encodeURIComponent(path)}`;
 
   const response = await fetch(url, { headers: { Accept: "application/json" } });
 
@@ -341,7 +349,7 @@ const resolverImagemProduto = (imagem: string | undefined, produtoId: number, co
 
   if (/^data:image\//i.test(imagemOuProduto)) return imagemOuProduto;
 
-  return `/api/erp-image-proxy?empresa=${empresa.toLowerCase()}&produtoId=${produtoId}&src=${encodeURIComponent(imagemOuProduto)}`;
+  return `${getSupabaseFunctionsBase()}/erp-image-proxy?empresa=${empresa.toLowerCase()}&produtoId=${produtoId}&src=${encodeURIComponent(imagemOuProduto)}`;
 };
 
 const isReferenciaImagemErpValida = (imagem: string | undefined): boolean =>
