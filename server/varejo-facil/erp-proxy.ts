@@ -49,12 +49,14 @@ function erpBaseEmpresa(empresa: EmpresaKey): EmpresaKey {
 }
 
 function getEnv(empresa: EmpresaKey, key: "URL" | "USERNAME" | "PASSWORD" | "TOKEN"): string {
+  // Credencial especifica da empresa (ex.: SOYE) sempre vence a da baseEmpresa
+  // (FACIL) — SOYE e FACIL compartilham host, mas podem ter tokens diferentes.
   const baseEmpresa = erpBaseEmpresa(empresa);
   return (
-    process.env[`ERP_API_${key}_${baseEmpresa}`] ||
-    process.env[`VITE_ERP_API_${key}_${baseEmpresa}`] ||
     process.env[`ERP_API_${key}_${empresa}`] ||
     process.env[`VITE_ERP_API_${key}_${empresa}`] ||
+    process.env[`ERP_API_${key}_${baseEmpresa}`] ||
+    process.env[`VITE_ERP_API_${key}_${baseEmpresa}`] ||
     process.env[`ERP_API_${key}`] ||
     process.env[`VITE_ERP_API_${key}`] ||
     ""
