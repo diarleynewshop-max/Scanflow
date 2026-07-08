@@ -1242,21 +1242,6 @@ const ConferenceView = ({ onBack, empresa: empresaProp, flag: flagProp, modoDesk
 
         <div className="space-y-4 pt-2">
           <div>
-            <p className="text-sm font-semibold text-foreground mb-2">Tipo</p>
-            <div className="flex gap-2">
-              {flagOptions.map((opt) => (
-                <button key={opt.value} onClick={() => setFlag(opt.value)}
-                  className="flex-1 h-11 rounded-xl font-bold text-sm transition-all active:scale-[0.98]"
-                  style={{
-                    background: flag === opt.value ? "hsl(var(--primary))" : "hsl(var(--muted))",
-                    color: flag === opt.value ? "hsl(var(--primary-foreground))" : "hsl(var(--muted-foreground))",
-                    border: flag === opt.value ? "2px solid hsl(var(--primary))" : "2px solid transparent",
-                  }}>{opt.label}</button>
-              ))}
-            </div>
-          </div>
-
-          <div>
             <p className="text-sm font-semibold text-foreground mb-2">Empresa</p>
             <div className="flex gap-2">
               {empresaOptions.map((opt) => (

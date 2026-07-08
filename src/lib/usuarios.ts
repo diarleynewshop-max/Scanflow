@@ -151,3 +151,16 @@ export async function redefinirSenhaUsuario(actor: ActorCredenciais, id: string,
   });
   if (error) throw error;
 }
+
+// Self-service: o proprio dono da conta troca a senha (valida a atual no banco).
+// Retorna false se a senha atual estiver errada.
+export async function alterarMinhaSenha(login: string, senhaAtual: string, novaSenha: string): Promise<boolean> {
+  assertSupabase();
+  const { data, error } = await supabase.rpc("alterar_minha_senha", {
+    p_login: login,
+    p_senha_atual: senhaAtual,
+    p_nova_senha: novaSenha,
+  });
+  if (error) throw error;
+  return data === true;
+}

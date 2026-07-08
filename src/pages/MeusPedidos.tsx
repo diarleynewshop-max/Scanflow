@@ -298,7 +298,7 @@ export default function MeusPedidos() {
   );
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 pb-8">
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 pb-8">
       <section className="rounded-3xl border border-border bg-card p-5 shadow-sm">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
@@ -422,7 +422,7 @@ export default function MeusPedidos() {
         </section>
       )}
 
-      <section className="grid gap-4">
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         {loading && pedidos.length === 0 ? (
           Array.from({ length: 3 }).map((_, index) => (
             <div key={index} className="rounded-3xl border border-border bg-card p-5 shadow-sm">
@@ -490,7 +490,7 @@ export default function MeusPedidos() {
                 </div>
 
                 {pedido.status === "concluido" ? (
-                  <div className="mt-4 grid gap-3 md:grid-cols-5">
+                  <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
                     <ResumoChip label="Separado" value={pedido.resumoSeparado} classes="border-emerald-200 bg-emerald-50 text-emerald-800" />
                     <ResumoChip label="Nao tem" value={pedido.resumoNaoTem} classes="border-rose-200 bg-rose-50 text-rose-800" />
                     <ResumoChip label="Parcial" value={pedido.resumoParcial} classes="border-amber-200 bg-amber-50 text-amber-800" />

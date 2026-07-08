@@ -3,6 +3,7 @@ import { ScanBarcode, ClipboardList, GitCompare, Trash2, AlertTriangle, Eye, Eye
 import type { LucideIcon } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useAuth, type Empresa, type LoginFlag, type LoginResult, type UsuarioLoginContext } from "@/hooks/useAuth";
+import { alterarMinhaSenha } from "@/lib/usuarios";
 import { hasAnyRoleAccess } from "@/components/ProtectedRoute";
 import { getLightModeEnabled, setLightModeEnabled } from "@/lib/lightMode";
 import { HISTORICO_COMPRAS_KEY, getHistoricoComprasEnabled } from "@/lib/historicoCompras";
@@ -177,6 +178,42 @@ const Home = () => {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [cleared, setCleared] = useState(false);
   const [mostrarPerfil, setMostrarPerfil] = useState(false);
+  const [senhaAtualPerfil, setSenhaAtualPerfil] = useState("");
+  const [novaSenhaPerfil, setNovaSenhaPerfil] = useState("");
+  const [trocandoSenha, setTrocandoSenha] = useState(false);
+  const [msgSenhaPerfil, setMsgSenhaPerfil] = useState<{ tipo: "ok" | "erro"; texto: string } | null>(null);
+
+  const handleTrocarMinhaSenha = async () => {
+    setMsgSenhaPerfil(null);
+    if (!loginSalvo?.login) {
+      setMsgSenhaPerfil({ tipo: "erro", texto: "Conta sem login no Supabase. Refaça o login." });
+      return;
+    }
+    if (!senhaAtualPerfil.trim() || !novaSenhaPerfil.trim()) {
+      setMsgSenhaPerfil({ tipo: "erro", texto: "Preencha a senha atual e a nova." });
+      return;
+    }
+    if (novaSenhaPerfil.trim().length < 3) {
+      setMsgSenhaPerfil({ tipo: "erro", texto: "A nova senha é muito curta." });
+      return;
+    }
+    setTrocandoSenha(true);
+    try {
+      const ok = await alterarMinhaSenha(loginSalvo.login, senhaAtualPerfil, novaSenhaPerfil);
+      if (ok) {
+        setMsgSenhaPerfil({ tipo: "ok", texto: "Senha alterada com sucesso!" });
+        setSenhaAtualPerfil("");
+        setNovaSenhaPerfil("");
+      } else {
+        setMsgSenhaPerfil({ tipo: "erro", texto: "Senha atual incorreta." });
+      }
+    } catch (err) {
+      console.error("[Perfil] Falha ao alterar senha:", err);
+      setMsgSenhaPerfil({ tipo: "erro", texto: "Não foi possível alterar a senha agora." });
+    } finally {
+      setTrocandoSenha(false);
+    }
+  };
 
   // Autenticação
   const { 
@@ -1058,6 +1095,38 @@ const Home = () => {
                     </div>
                   </div>
 
+                  {/* Trocar minha senha (dono da conta) */}
+                  {loginSalvo.login && (
+                    <div style={{ background: "hsl(var(--secondary))", border: "1px solid hsl(var(--border))", borderRadius: 12, padding: "16px", display: "flex", flexDirection: "column", gap: 10, marginTop: 4 }}>
+                      <p style={{ fontFamily: "var(--font-mono)", fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase", color: "hsl(var(--muted-foreground))" }}>Trocar minha senha</p>
+                      <input
+                        type="password"
+                        placeholder="Senha atual"
+                        value={senhaAtualPerfil}
+                        onChange={(e) => { setSenhaAtualPerfil(e.target.value); setMsgSenhaPerfil(null); }}
+                        style={{ width: "100%", height: 44, padding: "0 14px", borderRadius: 10, border: "1.5px solid hsl(var(--border))", background: "hsl(var(--card))", color: "hsl(var(--foreground))", fontFamily: "var(--font-sans)", fontSize: 14, outline: "none", boxSizing: "border-box" }}
+                      />
+                      <input
+                        type="password"
+                        placeholder="Nova senha"
+                        value={novaSenhaPerfil}
+                        onChange={(e) => { setNovaSenhaPerfil(e.target.value); setMsgSenhaPerfil(null); }}
+                        onKeyDown={(e) => { if (e.key === "Enter") void handleTrocarMinhaSenha(); }}
+                        style={{ width: "100%", height: 44, padding: "0 14px", borderRadius: 10, border: "1.5px solid hsl(var(--border))", background: "hsl(var(--card))", color: "hsl(var(--foreground))", fontFamily: "var(--font-sans)", fontSize: 14, outline: "none", boxSizing: "border-box" }}
+                      />
+                      {msgSenhaPerfil && (
+                        <p style={{ fontSize: 12, fontWeight: 600, color: msgSenhaPerfil.tipo === "ok" ? "hsl(var(--success))" : "hsl(var(--destructive))" }}>{msgSenhaPerfil.texto}</p>
+                      )}
+                      <button
+                        onClick={() => void handleTrocarMinhaSenha()}
+                        disabled={trocandoSenha}
+                        style={{ width: "100%", height: 44, background: "hsl(var(--primary))", color: "hsl(var(--primary-foreground))", border: "none", borderRadius: 10, fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 700, cursor: trocandoSenha ? "wait" : "pointer", opacity: trocandoSenha ? 0.7 : 1 }}
+                      >
+                        {trocandoSenha ? "Salvando…" : "Salvar nova senha"}
+                      </button>
+                    </div>
+                  )}
+
                   <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 8 }}>
                     <button onClick={() => { setMostrarPerfil(false); setMostrarModalLogin(true); }}
                       style={{
@@ -1284,43 +1353,6 @@ const Home = () => {
                 </p>
               </div>
 
-              {/* Baixar App */}
-              <div style={{ background: "hsl(var(--secondary))", border: "1px solid hsl(var(--border))", borderRadius: 10, padding: "16px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                  <div style={{ width: 40, height: 40, borderRadius: 10, background: "hsl(var(--primary) / 0.1)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <Download style={{ width: 18, height: 18, color: "hsl(var(--primary))" }} />
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontSize: 15, fontWeight: 600, color: "hsl(var(--foreground))" }}>Baixar App</p>
-                    <p style={{ fontSize: 12, color: "hsl(var(--muted-foreground))" }}>Gera um atalho para abrir o sistema direto</p>
-                  </div>
-                </div>
-                <button
-                  onClick={baixarAtalhoApp}
-                  style={{
-                    width: "100%",
-                    height: 44,
-                    background: "hsl(var(--primary))",
-                    color: "hsl(var(--primary-foreground))",
-                    border: "none",
-                    borderRadius: 10,
-                    fontFamily: "var(--font-sans)",
-                    fontSize: 13,
-                    fontWeight: 800,
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 8,
-                    textTransform: "uppercase",
-                  }}
-                >
-                  <Download style={{ width: 17, height: 17 }} /> Baixar App
-                </button>
-                <p style={{ fontSize: 11, color: "hsl(var(--muted-foreground))", paddingTop: 8, marginTop: 8, borderTop: "1px solid hsl(var(--border))" }}>
-                  O navegador baixa o atalho; depois é só mover para a Área de Trabalho.
-                </p>
-              </div>
 
               {loginSalvo?.role && hasAnyRoleAccess(loginSalvo.role, ['admin', 'super']) && (
                 <div style={{ background: "hsl(var(--secondary))", border: "1px solid hsl(var(--border))", borderRadius: 10, padding: "16px" }}>

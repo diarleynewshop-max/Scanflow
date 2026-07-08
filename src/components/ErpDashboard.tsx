@@ -1,9 +1,6 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
 import {
-  ScanBarcode, ClipboardList, GitCompare,
-  BadgeDollarSign, Package, CheckCircle2, AlertCircle, TrendingUp,
-  RefreshCw, CheckCheck, XCircle, AlertTriangle, Clock,
+  ClipboardList, Package, TrendingUp, CheckCheck, AlertTriangle,
   type LucideIcon,
 } from "lucide-react";
 import type { LoginData } from "@/hooks/useAuth";
@@ -189,15 +186,8 @@ function BarChart7Dias({ data, loading }: { data: { dia: string; valor: number }
   );
 }
 
-const QUICK_ACTIONS = [
-  { icon: ScanBarcode, label: "Escanear", desc: "Ler código de barras", path: "/scanner" },
-  { icon: ClipboardList, label: "Lista", desc: "Ver histórico", path: "/scanner?tab=list" },
-  { icon: GitCompare, label: "Conferência", desc: "Importar e conferir", path: "/scanner?tab=conference" },
-  { icon: BadgeDollarSign, label: "Consulta Preço", desc: "Varejo · Atacado · Grupo", path: "/consulta-preco" },
-];
 
 export function ErpDashboard({ loginSalvo }: { loginSalvo: LoginData | null }) {
-  const navigate = useNavigate();
   const hora = new Date().getHours();
   const saudacao = hora < 12 ? "Bom dia" : hora < 18 ? "Boa tarde" : "Boa noite";
   const nome = loginSalvo?.nomePessoa || "usuário";
@@ -308,70 +298,6 @@ export function ErpDashboard({ loginSalvo }: { loginSalvo: LoginData | null }) {
         }}>
           <p style={{ ...LABEL_MONO, marginBottom: 18 }}>Conferências · últimos {DAYS} dias</p>
           <BarChart7Dias data={porDia} loading={resumoLoading} />
-        </div>
-      </div>
-
-      {/* Ações rápidas */}
-      <div style={{
-        background: "hsl(var(--card))",
-        border: "1px solid hsl(var(--border))",
-        borderRadius: 16,
-        padding: "22px 22px",
-        boxShadow: "var(--shadow-sm)",
-        maxWidth: 420,
-      }}>
-        <p style={{ ...LABEL_MONO, marginBottom: 14 }}>Acesso Rápido</p>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {QUICK_ACTIONS.map(({ icon: Icon, label, desc, path }) => (
-            <button
-              key={label}
-              onClick={() => navigate(path)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 12,
-                padding: "11px 12px",
-                borderRadius: 10,
-                background: "transparent",
-                border: "1px solid hsl(var(--border))",
-                cursor: "pointer",
-                textAlign: "left",
-                width: "100%",
-                transition: "all 0.13s",
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = "hsl(var(--secondary))"; }}
-              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
-            >
-              <div style={{
-                width: 34, height: 34, borderRadius: 8,
-                background: "hsl(var(--secondary))",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                flexShrink: 0,
-              }}>
-                <Icon size={16} style={{ color: "hsl(var(--foreground))" }} />
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{
-                  fontSize: 13.5,
-                  fontWeight: 600,
-                  color: "hsl(var(--foreground))",
-                  lineHeight: 1.2,
-                }}>
-                  {label}
-                </p>
-                <p style={{
-                  fontSize: 11,
-                  color: "hsl(var(--muted-foreground))",
-                  marginTop: 2,
-                }}>
-                  {desc}
-                </p>
-              </div>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="hsl(var(--muted-foreground))" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
-          ))}
         </div>
       </div>
 
