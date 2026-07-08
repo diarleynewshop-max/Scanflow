@@ -396,6 +396,9 @@ const Home = () => {
     if (falha.contexto) {
       setUsuarioPendente(falha.contexto);
       setFlag(falha.contexto.flagDefault);
+      if (falha.contexto.flagDefault === "loja" && falha.contexto.secaoPadrao && !tituloPadrao.trim()) {
+        setTituloPadrao(falha.contexto.secaoPadrao);
+      }
       if (!falha.contexto.empresasPermitidas.includes(empresa)) {
         setEmpresa(falha.contexto.empresasPermitidas[0]);
       }

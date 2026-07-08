@@ -7,35 +7,35 @@
 @layer base {
   /* ☀️ TEMA CLARO (Exatamente o seu original) */
   :root {
-    --background: 40 30% 97%;
-    --foreground: 30 15% 10%;
+    --background: 39 33% 89%;
+    --foreground: 28 16% 14%;
 
-    --card: 0 0% 100%;
-    --card-foreground: 30 15% 10%;
+    --card: 40 44% 96%;
+    --card-foreground: 28 16% 14%;
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 30 15% 10%;
+    --popover: 40 44% 96%;
+    --popover-foreground: 28 16% 14%;
 
-    --primary: 30 12% 12%;
-    --primary-foreground: 40 30% 97%;
+    --primary: 177 56% 27%;
+    --primary-foreground: 40 44% 96%;
 
-    --secondary: 35 20% 92%;
-    --secondary-foreground: 30 15% 20%;
+    --secondary: 39 32% 91%;
+    --secondary-foreground: 28 16% 22%;
 
-    --muted: 35 15% 90%;
-    --muted-foreground: 30 10% 52%;
+    --muted: 39 28% 88%;
+    --muted-foreground: 31 12% 44%;
 
-    --accent: 35 15% 90%;
-    --accent-foreground: 30 15% 20%;
+    --accent: 39 30% 89%;
+    --accent-foreground: 28 16% 22%;
 
     --destructive: 12 80% 45%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 35 18% 88%;
-    --input: 35 18% 88%;
-    --ring: 30 12% 12%;
+    --border: 40 26% 81%;
+    --input: 40 26% 81%;
+    --ring: 177 56% 27%;
 
-    --radius: 0.75rem;
+    --radius: 1.2rem;
 
     --warning: 30 90% 40%;
     --warning-foreground: 0 0% 100%;
@@ -59,33 +59,33 @@
 
   /* 🌙 TEMA ESCURO (Novo, desenhado para combinar com sua paleta) */
   .dark {
-    --background: 30 10% 8%; /* Fundo grafite quente */
-    --foreground: 40 30% 97%; /* Texto claro */
+    --background: 30 16% 11%; /* Espresso quente */
+    --foreground: 40 34% 92%; /* Creme */
 
-    --card: 30 12% 12%; /* Cards um pouco mais claros que o fundo */
-    --card-foreground: 40 30% 97%;
+    --card: 30 15% 15%; /* Cards um pouco mais claros que o fundo */
+    --card-foreground: 40 34% 92%;
 
-    --popover: 30 12% 12%;
-    --popover-foreground: 40 30% 97%;
+    --popover: 30 15% 15%;
+    --popover-foreground: 40 34% 92%;
 
-    --primary: 40 30% 97%; /* Botões principais claros no modo escuro */
-    --primary-foreground: 30 12% 12%;
+    --primary: 177 40% 50%; /* Petroleo claro no modo escuro */
+    --primary-foreground: 30 16% 11%;
 
-    --secondary: 30 15% 16%;
-    --secondary-foreground: 40 30% 97%;
+    --secondary: 30 14% 18%;
+    --secondary-foreground: 40 34% 92%;
 
-    --muted: 30 15% 16%;
-    --muted-foreground: 35 15% 70%;
+    --muted: 30 14% 18%;
+    --muted-foreground: 38 16% 68%;
 
-    --accent: 30 15% 16%;
-    --accent-foreground: 40 30% 97%;
+    --accent: 30 14% 18%;
+    --accent-foreground: 40 34% 92%;
 
     --destructive: 12 80% 55%; /* Vermelho ligeiramente mais brilhante no dark */
     --destructive-foreground: 0 0% 100%;
 
-    --border: 30 15% 20%;
-    --input: 30 15% 20%;
-    --ring: 35 15% 70%;
+    --border: 30 14% 22%;
+    --input: 30 14% 22%;
+    --ring: 177 40% 50%;
 
     --warning: 30 90% 50%;
     --warning-foreground: 30 15% 10%;

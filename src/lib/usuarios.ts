@@ -9,6 +9,7 @@ export interface UsuarioAdmin {
   empresas: Empresa[];
   flagDefault: LoginFlag;
   secoesCompras: string[];
+  secaoPadrao?: string;
   ativo: boolean;
   createdAt: string;
   updatedAt: string;
@@ -27,6 +28,7 @@ export interface UsuarioFormPayload {
   empresas: Empresa[];
   flagDefault: LoginFlag;
   secoesCompras: string[];
+  secaoPadrao: string;
   ativo: boolean;
 }
 
@@ -38,6 +40,7 @@ type UsuarioRpcRow = {
   empresas?: string[];
   flag_default?: string;
   secoes_compras?: string[];
+  secao_padrao?: string | null;
   ativo?: boolean;
   created_at?: string;
   updated_at?: string;
@@ -71,6 +74,11 @@ function normalizarArray(values: unknown): string[] {
   return values.map((value) => String(value ?? "").trim()).filter(Boolean);
 }
 
+function normalizarTextoOpcional(value: unknown): string | undefined {
+  const texto = String(value ?? "").trim();
+  return texto || undefined;
+}
+
 function mapUsuario(row: UsuarioRpcRow): UsuarioAdmin {
   return {
     id: String(row.id ?? ""),
@@ -80,6 +88,7 @@ function mapUsuario(row: UsuarioRpcRow): UsuarioAdmin {
     empresas: normalizarEmpresas(row.empresas),
     flagDefault: normalizarFlag(row.flag_default),
     secoesCompras: normalizarArray(row.secoes_compras),
+    secaoPadrao: normalizarTextoOpcional(row.secao_padrao),
     ativo: row.ativo !== false,
     createdAt: String(row.created_at ?? ""),
     updatedAt: String(row.updated_at ?? ""),
@@ -111,6 +120,7 @@ export async function criarUsuario(actor: ActorCredenciais, payload: UsuarioForm
     p_empresas: payload.empresas,
     p_flag_default: payload.flagDefault,
     p_secoes: payload.secoesCompras,
+    p_secao_padrao: payload.secaoPadrao,
   });
   if (error) throw error;
   return String(data ?? "");
@@ -126,6 +136,7 @@ export async function atualizarUsuario(actor: ActorCredenciais, id: string, payl
     p_empresas: payload.empresas,
     p_flag_default: payload.flagDefault,
     p_secoes: payload.secoesCompras,
+    p_secao_padrao: payload.secaoPadrao,
     p_ativo: payload.ativo,
   });
   if (error) throw error;

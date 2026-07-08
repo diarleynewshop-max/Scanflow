@@ -25,6 +25,7 @@ const emptyForm: UsuarioFormPayload = {
   empresas: ["NEWSHOP"],
   flagDefault: "loja",
   secoesCompras: [],
+  secaoPadrao: "",
   ativo: true,
 };
 
@@ -46,6 +47,7 @@ export default function Usuarios() {
   const [confirmado, setConfirmado] = useState(false);
   const [usuarios, setUsuarios] = useState<UsuarioAdmin[]>([]);
   const [form, setForm] = useState<UsuarioFormPayload>(emptyForm);
+  const [secaoFixa, setSecaoFixa] = useState(false);
   const [editandoId, setEditandoId] = useState<string | null>(null);
   const [resetId, setResetId] = useState<string | null>(null);
   const [novaSenha, setNovaSenha] = useState("");
@@ -100,14 +102,17 @@ export default function Usuarios() {
       empresas: usuario.empresas.length > 0 ? usuario.empresas : ["NEWSHOP"],
       flagDefault: usuario.flagDefault,
       secoesCompras: usuario.secoesCompras,
+      secaoPadrao: usuario.secaoPadrao ?? "",
       ativo: usuario.ativo,
     });
+    setSecaoFixa(Boolean(usuario.secaoPadrao?.trim()));
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function limparForm() {
     setEditandoId(null);
     setForm(emptyForm);
+    setSecaoFixa(false);
   }
 
   function toggleEmpresa(empresa: Empresa) {
@@ -127,6 +132,19 @@ export default function Usuarios() {
     }));
   }
 
+  function definirSecaoAberta() {
+    setSecaoFixa(false);
+    setForm((prev) => ({ ...prev, secaoPadrao: "" }));
+  }
+
+  function definirSecaoFixa() {
+    setSecaoFixa(true);
+    setForm((prev) => {
+      if (prev.secaoPadrao.trim()) return prev;
+      return { ...prev, secaoPadrao: secoesDisponiveis[0] ?? "" };
+    });
+  }
+
   async function salvarUsuario() {
     if (!actor) return;
     if (!form.nome.trim() || (!editandoId && !form.login.trim())) {
@@ -139,6 +157,10 @@ export default function Usuarios() {
     }
     if (form.empresas.length === 0) {
       toast({ title: "Selecione pelo menos uma loja", variant: "destructive" });
+      return;
+    }
+    if (secaoFixa && !form.secaoPadrao.trim()) {
+      toast({ title: "Informe a secao fixa", variant: "destructive" });
       return;
     }
 
@@ -268,6 +290,31 @@ export default function Usuarios() {
             </div>
 
             <div style={{ marginTop: 14 }}>
+              <Label>Secao no login</Label>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: secaoFixa ? 10 : 0 }}>
+                <Chip selected={!secaoFixa} onClick={definirSecaoAberta}>Aberta</Chip>
+                <Chip selected={secaoFixa} onClick={definirSecaoFixa}>Fixa</Chip>
+              </div>
+              {secaoFixa && (
+                <div>
+                  <input
+                    list="usuario-secoes-fixas"
+                    value={form.secaoPadrao}
+                    onChange={(event) => setForm((prev) => ({ ...prev, secaoPadrao: event.target.value }))}
+                    placeholder="Ex: Utilidade"
+                    style={inputStyle}
+                  />
+                  <datalist id="usuario-secoes-fixas">
+                    {secoesDisponiveis.map((secao) => <option key={secao} value={secao} />)}
+                  </datalist>
+                  <p style={{ marginTop: 6, fontSize: 12, color: "hsl(var(--muted-foreground))" }}>
+                    Preenche o login de loja, mas continua editavel.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div style={{ marginTop: 14 }}>
               <Label>Lojas</Label>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 {EMPRESAS.map((empresa) => {
@@ -323,6 +370,7 @@ export default function Usuarios() {
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 12 }}>
                   {usuario.empresas.map((empresa) => <Tag key={empresa}>{empresa}</Tag>)}
                   <Tag>{usuario.flagDefault.toUpperCase()}</Tag>
+                  <Tag>{usuario.secaoPadrao ? `Secao: ${usuario.secaoPadrao}` : "Secao aberta"}</Tag>
                   {usuario.secoesCompras.map((secao) => <Tag key={secao}>{secao}</Tag>)}
                 </div>
                 {resetId === usuario.id ? (
