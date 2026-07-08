@@ -4,8 +4,11 @@ import {
   ScanBarcode, ClipboardList, GitCompare,
   BadgeDollarSign, Package, CheckCircle2, AlertCircle, TrendingUp,
   RefreshCw, CheckCheck, XCircle, AlertTriangle, Clock,
+  type LucideIcon,
 } from "lucide-react";
 import type { LoginData } from "@/hooks/useAuth";
+import { formatDateInputValue } from "@/lib/periodoFiltro";
+import { listarDashboardDiario, type DashboardDiarioRow } from "@/lib/dashboardSupabase";
 
 const DAYS = 7;
 const DASH_CACHE_TTL = 30 * 60 * 1000;
@@ -69,7 +72,7 @@ const LABEL_MONO: React.CSSProperties = {
 };
 
 interface KpiProps {
-  icon: React.ComponentType<{ size?: number; style?: React.CSSProperties }>;
+  icon: LucideIcon;
   label: string;
   value: number | string;
   hint: string;
@@ -199,6 +202,59 @@ export function ErpDashboard({ loginSalvo }: { loginSalvo: LoginData | null }) {
   const saudacao = hora < 12 ? "Bom dia" : hora < 18 ? "Boa tarde" : "Boa noite";
   const nome = loginSalvo?.nomePessoa || "usuário";
 
+  const empresasResumo = (loginSalvo?.empresasPermitidas && loginSalvo.empresasPermitidas.length > 0)
+    ? loginSalvo.empresasPermitidas
+    : (loginSalvo?.empresa ? [loginSalvo.empresa] : []);
+  const flagResumo = loginSalvo?.flag ?? "loja";
+  const empresasKey = empresasResumo.join(",");
+
+  const [resumoLoading, setResumoLoading] = useState(true);
+  const [hoje, setHoje] = useState({ conferencias: 0, itens: 0, separado: 0, pendente: 0 });
+  const [mes, setMes] = useState({ conferencias: 0, itens: 0 });
+  const [porDia, setPorDia] = useState<{ dia: string; valor: number }[]>(() => emptyDays());
+
+  useEffect(() => {
+    if (empresasResumo.length === 0) { setResumoLoading(false); return; }
+    let cancelado = false;
+    const somar = (rows: DashboardDiarioRow[], k: keyof DashboardDiarioRow) =>
+      rows.reduce((acc, r) => acc + Number((r[k] as number) ?? 0), 0);
+
+    const hojeStr = formatDateInputValue(new Date());
+    const inicioMes = new Date(); inicioMes.setDate(1);
+    const inicioMesStr = formatDateInputValue(inicioMes);
+    const ini7 = new Date(); ini7.setDate(ini7.getDate() - (DAYS - 1));
+    const dataInicio = ini7 < inicioMes ? formatDateInputValue(ini7) : inicioMesStr;
+
+    setResumoLoading(true);
+    listarDashboardDiario({ empresas: empresasResumo, flag: flagResumo, dataInicio, dataFim: hojeStr })
+      .then((rows) => {
+        if (cancelado) return;
+        const doHoje = rows.filter((r) => r.data === hojeStr);
+        setHoje({
+          conferencias: somar(doHoje, "total_conferencias"),
+          itens: somar(doHoje, "total_itens"),
+          separado: somar(doHoje, "separado"),
+          pendente: somar(doHoje, "pendente"),
+        });
+        const doMes = rows.filter((r) => r.data >= inicioMesStr);
+        setMes({ conferencias: somar(doMes, "total_conferencias"), itens: somar(doMes, "total_itens") });
+
+        const porData = new Map<string, number>();
+        rows.forEach((r) => porData.set(r.data, (porData.get(r.data) ?? 0) + Number(r.total_conferencias ?? 0)));
+        const ultimos: { dia: string; valor: number }[] = [];
+        for (let i = DAYS - 1; i >= 0; i--) {
+          const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - i);
+          ultimos.push({ dia: diaLabel(d), valor: porData.get(formatDateInputValue(d)) ?? 0 });
+        }
+        setPorDia(ultimos);
+      })
+      .catch((err) => console.error("[ErpDashboard] Falha ao carregar resumo:", err))
+      .finally(() => { if (!cancelado) setResumoLoading(false); });
+
+    return () => { cancelado = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [empresasKey, flagResumo]);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 28, maxWidth: 1400 }}>
       {/* Saudação */}
@@ -221,8 +277,38 @@ export function ErpDashboard({ loginSalvo }: { loginSalvo: LoginData | null }) {
           maxWidth: 560,
           lineHeight: 1.5,
         }}>
-          Resumo das listas, conferências e atividade dos últimos {DAYS} dias.
+          Resumo das listas, conferências e atividade — hoje, no mês e nos últimos {DAYS} dias.
         </p>
+      </div>
+
+      {/* Resumo de HOJE */}
+      <div>
+        <p style={{ ...LABEL_MONO, marginBottom: 12 }}>Hoje</p>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 14 }}>
+          <Kpi icon={ClipboardList} label="Conferências" value={hoje.conferencias} hint="fechadas hoje" />
+          <Kpi icon={Package} label="Itens" value={hoje.itens} hint="conferidos hoje" />
+          <Kpi icon={CheckCheck} label="Separado" value={hoje.separado} hint="itens ok" accent="hsl(var(--success))" />
+          <Kpi icon={AlertTriangle} label="Pendente" value={hoje.pendente} hint="a resolver" accent="hsl(var(--warning))" />
+        </div>
+      </div>
+
+      {/* Resumo do MÊS + gráfico 7 dias */}
+      <div>
+        <p style={{ ...LABEL_MONO, marginBottom: 12 }}>Este mês</p>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginBottom: 20 }}>
+          <Kpi icon={TrendingUp} label="Conferências" value={mes.conferencias} hint="no mês atual" />
+          <Kpi icon={Package} label="Itens" value={mes.itens} hint="no mês atual" />
+        </div>
+        <div style={{
+          background: "hsl(var(--card))",
+          border: "1px solid hsl(var(--border))",
+          borderRadius: 16,
+          padding: "22px 22px 18px",
+          boxShadow: "var(--shadow-sm)",
+        }}>
+          <p style={{ ...LABEL_MONO, marginBottom: 18 }}>Conferências · últimos {DAYS} dias</p>
+          <BarChart7Dias data={porDia} loading={resumoLoading} />
+        </div>
       </div>
 
       {/* Ações rápidas */}
