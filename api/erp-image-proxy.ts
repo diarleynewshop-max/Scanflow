@@ -10,6 +10,11 @@ const HOSTS: Record<EmpresaKey, string> = {
 
 const tokenCache = new Map<string, string>();
 
+interface ErpAuth {
+  token: string;
+  configured: boolean;
+}
+
 function setCors(res: VercelResponse) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "authorization, x-client-info, apikey, content-type");
@@ -31,7 +36,7 @@ function erpBaseEmpresa(empresa: EmpresaKey): EmpresaKey {
   return empresa === "SOYE" ? "FACIL" : empresa;
 }
 
-function getEnv(empresa: EmpresaKey, key: "URL" | "USERNAME" | "PASSWORD" | "TOKEN"): string {
+function getEnv(empresa: EmpresaKey, key: "URL" | "USERNAME" | "PASSWORD" | "TOKEN" | "KEY"): string {
   const baseEmpresa = erpBaseEmpresa(empresa);
   return (
     process.env[`ERP_API_${key}_${empresa}`] ||
@@ -60,16 +65,16 @@ function resolveTokenFromAuth(data: Record<string, unknown>): string {
   );
 }
 
-async function getAccessToken(empresa: EmpresaKey, baseUrl: string): Promise<string> {
-  const configuredToken = getEnv(empresa, "TOKEN");
-  if (configuredToken) return configuredToken;
+async function getAccessToken(empresa: EmpresaKey, baseUrl: string): Promise<ErpAuth> {
+  const configuredToken = getEnv(empresa, "TOKEN") || getEnv(empresa, "KEY");
+  if (configuredToken) return { token: configuredToken, configured: true };
 
   const username = getEnv(empresa, "USERNAME");
   const password = getEnv(empresa, "PASSWORD");
   const cacheKey = `${empresa}:${baseUrl}:${username}`;
   const cachedToken = tokenCache.get(cacheKey);
 
-  if (cachedToken) return cachedToken;
+  if (cachedToken) return { token: cachedToken, configured: false };
   if (!username || !password) {
     throw new Error(`Credenciais do ERP nao configuradas para ${empresa}.`);
   }
@@ -95,7 +100,20 @@ async function getAccessToken(empresa: EmpresaKey, baseUrl: string): Promise<str
   }
 
   tokenCache.set(cacheKey, token);
-  return token;
+  return { token, configured: false };
+}
+
+function buildErpHeaders(auth: ErpAuth, accept: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    Authorization: auth.token,
+    Accept: accept,
+  };
+
+  if (auth.configured) {
+    headers["X-API-KEY"] = auth.token;
+  }
+
+  return headers;
 }
 
 function resolveImageUrl(baseUrl: string, src: string): string {
@@ -160,15 +178,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const baseUrl = resolveBaseUrl(empresa);
-    const token = await getAccessToken(empresa, baseUrl);
+    const auth = await getAccessToken(empresa, baseUrl);
     let imageResponse: Response | null = null;
 
     for (const candidateUrl of buildImageCandidates(baseUrl, src, produtoId)) {
       const response = await fetch(candidateUrl, {
-        headers: {
-          Authorization: token,
-          Accept: "image/*,*/*",
-        },
+        headers: buildErpHeaders(auth, "image/*,*/*"),
       });
       const contentType = response.headers.get("content-type") || "";
 
