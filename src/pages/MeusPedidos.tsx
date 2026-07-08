@@ -145,6 +145,17 @@ function ResumoChip(props: { label: string; value: number; classes: string }) {
   );
 }
 
+function itemCombinaProduto(item: PedidoFilaItem, termo: string): boolean {
+  const t = termo.trim().toLowerCase();
+  if (!t) return false;
+  return (
+    item.codigo.toLowerCase().includes(t) ||
+    item.descricao.toLowerCase().includes(t) ||
+    item.sku.toLowerCase().includes(t) ||
+    (item.secao ?? "").toLowerCase().includes(t)
+  );
+}
+
 export default function MeusPedidos() {
   const { loginSalvo } = useAuth();
   const [pedidos, setPedidos] = useState<MeuPedidoResumo[]>([]);
@@ -245,6 +256,25 @@ export default function MeusPedidos() {
     void carregar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [empresa, flag, nomeLogado, escopoPessoa, buscaProdutoDebounced, buscaPessoaDebounced, periodo, dataInicio, dataFim]);
+
+  // Ao buscar por produto, abre o primeiro pedido que casou pra ja mostrar o item em laranja.
+  useEffect(() => {
+    const termo = buscaProdutoDebounced.trim();
+    if (!termo || pedidos.length === 0) return;
+    const primeiro = pedidos[0];
+    setExpandidoId(primeiro.id);
+    if (itensPorPedido[primeiro.id]) return;
+    setCarregandoItensId(primeiro.id);
+    setErroItensId(null);
+    carregarItensDoPedido(primeiro.id)
+      .then((itens) => setItensPorPedido((prev) => ({ ...prev, [primeiro.id]: itens })))
+      .catch((err) => {
+        console.error("[MeusPedidos] Falha ao carregar itens do pedido:", err);
+        setErroItensId(primeiro.id);
+      })
+      .finally(() => setCarregandoItensId(null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [buscaProdutoDebounced, pedidos]);
 
   const toggleItens = async (pedidoId: string) => {
     if (expandidoId === pedidoId) {
@@ -532,10 +562,15 @@ export default function MeusPedidos() {
                       <div className="space-y-2">
                         {itensPorPedido[pedido.id].map((item) => {
                           const itemStatus = getItemStatusMeta(item.status);
+                          const destacado = itemCombinaProduto(item, buscaProdutoDebounced);
                           return (
                             <div
                               key={item.id}
-                              className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border px-3 py-2 text-sm"
+                              className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 text-sm transition-colors ${
+                                destacado
+                                  ? "border-orange-400 bg-orange-50 ring-1 ring-orange-300 dark:bg-orange-500/10"
+                                  : "border-border"
+                              }`}
                             >
                               <div className="flex min-w-0 items-center gap-2">
                                 {item.photo ? (
@@ -546,8 +581,11 @@ export default function MeusPedidos() {
                                   </div>
                                 )}
                                 <div className="min-w-0">
-                                  <div className="truncate font-mono text-xs font-bold text-foreground">{item.codigo}</div>
-                                  <div className="truncate text-xs text-muted-foreground">{item.sku || item.secao || "-"}</div>
+                                  {item.descricao && (
+                                    <div className="truncate text-xs font-bold text-foreground">{item.descricao}</div>
+                                  )}
+                                  <div className="truncate font-mono text-[11px] text-muted-foreground">{item.codigo}</div>
+                                  <div className="truncate text-[11px] text-muted-foreground">{item.sku || item.secao || "-"}</div>
                                 </div>
                               </div>
                               <div className="flex items-center gap-3">

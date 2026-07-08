@@ -42,6 +42,7 @@ interface PedidoFilaItemRow {
   pedido_id: string;
   codigo: string;
   sku: string | null;
+  descricao: string | null;
   secao: string | null;
   quantidade_pedida: number | null;
   quantidade_real: number | null;
@@ -66,6 +67,7 @@ export interface PedidoFilaItem {
   pedidoId: string;
   codigo: string;
   sku: string;
+  descricao: string;
   secao: string | null;
   quantidadePedida: number;
   quantidadeReal: number | null;
@@ -408,11 +410,12 @@ export async function listarPedidos(f: ListarPedidosFiltro): Promise<MeuPedidoRe
 
   const produtoBusca = String(f.produtoBusca ?? '').trim();
   if (produtoBusca) {
-    const like = `%${produtoBusca}%`;
+    // Em .or() o curinga do ilike e '*' (nao '%'). Busca por codigo, nome e sku, parcial.
+    const like = `*${produtoBusca}*`;
     const { data: itens, error: errItens } = await supabase
       .from('pedido_itens')
       .select('pedido_id')
-      .or(`codigo.ilike.${like},sku.ilike.${like},secao.ilike.${like}`);
+      .or(`codigo.ilike.${like},descricao.ilike.${like},sku.ilike.${like},secao.ilike.${like}`);
 
     if (errItens) throw errItens;
 
@@ -492,7 +495,7 @@ export async function carregarItensDoPedido(pedidoId: string): Promise<PedidoFil
 
   const { data, error } = await supabase
     .from('pedido_itens')
-    .select('id,pedido_id,codigo,sku,secao,quantidade_pedida,quantidade_real,status,foto_url,ordem')
+    .select('id,pedido_id,codigo,sku,descricao,secao,quantidade_pedida,quantidade_real,status,foto_url,ordem')
     .eq('pedido_id', pedidoId)
     .order('ordem', { ascending: true });
 
@@ -503,6 +506,7 @@ export async function carregarItensDoPedido(pedidoId: string): Promise<PedidoFil
     pedidoId: item.pedido_id,
     codigo: String(item.codigo ?? '').trim(),
     sku: String(item.sku ?? '').trim(),
+    descricao: String(item.descricao ?? '').trim(),
     secao: item.secao ?? null,
     quantidadePedida: toInt(item.quantidade_pedida),
     quantidadeReal: item.quantidade_real == null ? null : toInt(item.quantidade_real),
