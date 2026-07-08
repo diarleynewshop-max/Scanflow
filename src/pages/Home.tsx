@@ -1,11 +1,11 @@
 ﻿import { useNavigate, useSearchParams } from "react-router-dom";
-import { ScanBarcode, ClipboardList, GitCompare, Trash2, AlertTriangle, Eye, EyeOff, Store, User, ShoppingCart, BarChart3, Settings, Moon, Sun, Monitor, Smartphone, BadgeDollarSign, Download, Lock, Shield, Package } from "lucide-react";
+import { ScanBarcode, ClipboardList, GitCompare, Trash2, AlertTriangle, Eye, EyeOff, Store, User, ShoppingCart, BarChart3, Settings, Moon, Sun, Monitor, Smartphone, BadgeDollarSign, Download, Shield, Package, Loader2 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { useState, useEffect } from "react";
-import { useAuth, validarSenha, type LoginFlag } from "@/hooks/useAuth";
+import { useAuth, type Empresa, type LoginFlag, type LoginResult, type UsuarioLoginContext } from "@/hooks/useAuth";
 import { hasAnyRoleAccess } from "@/components/ProtectedRoute";
 import { getLightModeEnabled, setLightModeEnabled } from "@/lib/lightMode";
 import { HISTORICO_COMPRAS_KEY, getHistoricoComprasEnabled } from "@/lib/historicoCompras";
-import { getSecoesFixasPorEmpresa } from "@/lib/secoesCompras";
 import { useToast } from "@/hooks/use-toast";
 import { getCompanyLogo, getCompanyName } from "@/lib/companyTheme";
 import { ErpLayout } from "@/components/ErpLayout";
@@ -52,11 +52,13 @@ const analyticsMenuItems = [
 ];
 
 // Menu exclusivo admin (admin, super) — vazio ate a proxima ferramenta admin-only ser criada.
-const adminMenuItems: Array<{ Icon: typeof ShoppingCart; label: string; description: string; path: string; accent: string }> = [];
+const adminMenuItems: Array<{ Icon: LucideIcon; label: string; description: string; path: string; accent: string }> = [
+  { Icon: Shield, label: "Usuários", description: "Cadastro e acesso por loja", path: "/usuarios", accent: "hsl(var(--destructive))" },
+];
 
 // Componente de card do menu
 interface MenuCardProps {
-  Icon: React.ComponentType<{ style?: React.CSSProperties }>;
+  Icon: LucideIcon;
   label: string;
   description: string;
   path: string | null;
@@ -186,21 +188,16 @@ const Home = () => {
   } = useAuth();
 
   // Estados para o formulário de login
-  const [empresa, setEmpresa] = useState<"NEWSHOP" | "SOYE" | "FACIL">("NEWSHOP");
+  const [empresa, setEmpresa] = useState<Empresa>("NEWSHOP");
   const [flag, setFlag] = useState<LoginFlag>("loja");
+  const [loginUsuario, setLoginUsuario] = useState("");
   const [senha, setSenha] = useState("");
   const [tituloPadrao, setTituloPadrao] = useState("");
-  const [nomePessoa, setNomePessoa] = useState("");
   const [mostrarSenha, setMostrarSenha] = useState(false);
   const [erroSenha, setErroSenha] = useState(false);
-  const [roleDetectado, setRoleDetectado] = useState<string | null>(null);
-  const [nivelSelecionado, setNivelSelecionado] = useState<string | null>(null);
-  const [mostrarPopupSenhaAcesso, setMostrarPopupSenhaAcesso] = useState(false);
-  const [senhaAcessoInput, setSenhaAcessoInput] = useState('');
-  const [erroSenhaAcesso, setErroSenhaAcesso] = useState(false);
-  const [mostrarSenhaAcesso, setMostrarSenhaAcesso] = useState(false);
-  // Secoes marcadas para o perfil de compras selecionado (Ferramenta, Eletronico...).
-  const [secoesSelecionadas, setSecoesSelecionadas] = useState<string[]>([]);
+  const [erroLogin, setErroLogin] = useState("");
+  const [loginCarregando, setLoginCarregando] = useState(false);
+  const [usuarioPendente, setUsuarioPendente] = useState<UsuarioLoginContext | null>(null);
 
   // Estados para configurações
   const [modoEscuro, setModoEscuro] = useState(() => {
@@ -267,12 +264,13 @@ const Home = () => {
 
     setEmpresa(loginSalvo?.empresa ?? "NEWSHOP");
     setFlag(loginSalvo?.flag ?? "loja");
+    setLoginUsuario(loginSalvo?.login ?? "");
     setTituloPadrao(loginSalvo?.flag === "cd" ? "" : (loginSalvo?.tituloPadrao ?? ""));
-    setNomePessoa(loginSalvo?.nomePessoa ?? "");
     setSenha("");
     setMostrarSenha(false);
     setErroSenha(false);
-    setRoleDetectado(null);
+    setErroLogin("");
+    setUsuarioPendente(null);
   }, [mostrarModalLogin, loginSalvo]);
 
   // Funções para configurações
@@ -343,114 +341,90 @@ const Home = () => {
     setTimeout(() => setCleared(false), 3000);
   };
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
+    if (!loginUsuario.trim()) {
+      setErroSenha(true);
+      setErroLogin("Informe o login.");
+      return;
+    }
+
     if (!senha.trim()) {
       setErroSenha(true);
-      setRoleDetectado(null);
+      setErroLogin("Informe a senha.");
       return;
     }
 
-    if (!nomePessoa.trim()) {
-      toast({ title: "Informe o nome", variant: "destructive" });
-      setRoleDetectado(null);
-      return;
-    }
+    const empresasPermitidas = usuarioPendente?.empresasPermitidas ?? [];
+    const flagLogin = usuarioPendente?.flagDefault ?? flag;
+    const empresaSelecionada = usuarioPendente
+      ? (empresasPermitidas.length === 1 ? empresasPermitidas[0] : empresa)
+      : undefined;
 
-    if (flag === "loja" && !tituloPadrao.trim()) {
+    if (usuarioPendente && flagLogin === "loja" && !tituloPadrao.trim()) {
       toast({ title: "Informe a secao", variant: "destructive" });
-      setRoleDetectado(null);
       return;
     }
-    
-    // Primeiro valida a senha para detectar o role
-    const { valido, role } = validarSenha(empresa, senha, flag);
-    
-    if (!valido) {
-      setErroSenha(true);
-      setRoleDetectado(null);
-      return;
-    }
-    
-    // Mostra o role detectado antes de fazer login
-    setRoleDetectado(role);
-    
-    // Faz o login
-    const sucesso = fazerLogin({
-      empresa,
-      flag,
+
+    setLoginCarregando(true);
+    setErroSenha(false);
+    setErroLogin("");
+
+    const resultado = await fazerLogin({
+      login: loginUsuario,
       senha,
-      tituloPadrao: flag === "cd" ? "CD" : tituloPadrao.trim(),
-      nomePessoa: nomePessoa.trim(),
-      role
+      empresaSelecionada,
+      tituloPadrao: flagLogin === "cd" ? "CD" : tituloPadrao.trim(),
+      flag: flagLogin,
     });
-    
-    if (!sucesso) {
+
+    setLoginCarregando(false);
+
+    if (resultado.sucesso) {
+      setUsuarioPendente(null);
+      setSenha("");
+      setErroLogin("");
+      return;
+    }
+
+    const falha = resultado as Extract<LoginResult, { sucesso: false }>;
+
+    if (falha.contexto) {
+      setUsuarioPendente(falha.contexto);
+      setFlag(falha.contexto.flagDefault);
+      if (!falha.contexto.empresasPermitidas.includes(empresa)) {
+        setEmpresa(falha.contexto.empresasPermitidas[0]);
+      }
+    }
+
+    if (falha.motivo === "selecionar_empresa") {
+      setErroLogin("Selecione a loja permitida para este usuario.");
+      return;
+    }
+
+    if (falha.motivo === "titulo_obrigatorio") {
+      setErroLogin("Informe a secao da lista.");
+      return;
+    }
+
+    if (falha.motivo === "supabase_nao_configurado") {
+      toast({ title: "Supabase nao configurado", variant: "destructive" });
+      setErroLogin("Supabase nao configurado.");
+      return;
+    }
+
+    if (falha.motivo === "empresa_nao_permitida") {
+      setErroLogin("Esta loja nao esta liberada para o usuario.");
+      return;
+    }
+
+    if (falha.motivo === "credencial_invalida") {
       setErroSenha(true);
-      setRoleDetectado(null);
-      return;
+      setErroLogin("Login ou senha invalidos.");
     }
-
-    setRoleDetectado(null);
   };
 
-  const SENHAS_NIVEL: Record<string, string[]> = {
-    'compras-newshop': ['Compras1148'],
-    'compras-sf': ['ComprasSF'],
-    'admin': ['Admin1148', 'Admin2461', 'Admin1090', 'Admin1316'],
-  };
-
-  const ROLES_NIVEL: Record<string, 'compras' | 'super'> = {
-    'compras-newshop': 'compras',
-    'compras-sf': 'compras',
-    'admin': 'super',
-  };
-
-  const LABELS_NIVEL: Record<string, string> = {
-    'compras-newshop': 'Compras Newshop',
-    'compras-sf': 'Compras Soye e Facil',
-    'admin': 'ADMIN',
-  };
-
-  const isNivelCompras = (nivel: string | null): boolean =>
-    nivel === 'compras-newshop' || nivel === 'compras-sf';
-
-  // Lista fixa de secoes disponivel para cada perfil de compras (por empresa).
-  const getSecoesDoNivel = (nivel: string | null): string[] => {
-    if (nivel === 'compras-newshop') return getSecoesFixasPorEmpresa('NEWSHOP');
-    if (nivel === 'compras-sf') return getSecoesFixasPorEmpresa('SOYE');
-    return [];
-  };
-
-  const toggleSecaoSelecionada = (secao: string) => {
-    setSecoesSelecionadas((prev) =>
-      prev.includes(secao) ? prev.filter((s) => s !== secao) : [...prev, secao]
-    );
-  };
-
-  const handleAplicarPerfil = () => {
-    if (!nivelSelecionado || !loginSalvo) return;
-    if (!SENHAS_NIVEL[nivelSelecionado].includes(senhaAcessoInput)) {
-      setErroSenhaAcesso(true);
-      return;
-    }
-    const novoLogin: Record<string, unknown> = {
-      ...loginSalvo,
-      role: ROLES_NIVEL[nivelSelecionado] as 'operador' | 'compras' | 'admin' | 'super',
-    };
-    // So o perfil de compras guarda secoes; outros niveis limpam o campo.
-    if (isNivelCompras(nivelSelecionado)) {
-      novoLogin.secoesCompras = secoesSelecionadas;
-    } else {
-      delete novoLogin.secoesCompras;
-    }
-    localStorage.setItem("scan_newshop_login", JSON.stringify(novoLogin));
-    setMostrarPopupSenhaAcesso(false);
-    setNivelSelecionado(null);
-    setSenhaAcessoInput('');
-    setSecoesSelecionadas([]);
-    setMostrarConfiguracoes(false);
-    setTimeout(() => window.location.reload(), 300);
-  };
+  const empresasPermitidasLogin = usuarioPendente?.empresasPermitidas ?? [];
+  const flagLogin = usuarioPendente?.flagDefault ?? flag;
 
   return (
     <div className="min-h-screen flex flex-col max-w-md mx-auto" style={{ background: "hsl(var(--background))" }}>
@@ -835,74 +809,37 @@ const Home = () => {
 
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
-              {/* Empresa */}
-              <div data-tut="login-empresa">
-                <label style={{ fontFamily: "var(--font-mono)", fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase", color: "hsl(var(--muted-foreground))", marginBottom: 6, display: "block" }}>Empresa</label>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {(["NEWSHOP", "SOYE", "FACIL"] as const).map((emp) => (
-                    <button key={emp} onClick={() => { setEmpresa(emp); setErroSenha(false); setRoleDetectado(null); }}
-                      style={{
-                        height: 46, borderRadius: 12, fontWeight: 700, fontSize: 13,
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        cursor: "pointer", transition: "all 0.18s",
-                        background: empresa === emp ? "hsl(var(--foreground))" : "hsl(var(--secondary))",
-                        color: empresa === emp ? "hsl(var(--background))" : "hsl(var(--foreground))",
-                        border: empresa === emp ? "2px solid hsl(var(--foreground))" : "2px solid hsl(var(--border))",
-                        letterSpacing: "0.04em",
-                      }}
-                    >
-                      {emp}
-                    </button>
-                  ))}
-                </div>
+              <div>
+                <label style={{ fontFamily: "var(--font-mono)", fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase", color: "hsl(var(--muted-foreground))", marginBottom: 6, display: "block" }}>Login</label>
+                <input
+                  type="text"
+                  placeholder="Ex: joao"
+                  value={loginUsuario}
+                  onChange={(e) => { setLoginUsuario(e.target.value); setErroSenha(false); setErroLogin(""); setUsuarioPendente(null); }}
+                  onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+                  autoFocus
+                  style={{
+                    width: "100%", height: 48, padding: "0 16px",
+                    borderRadius: 10, border: "1.5px solid hsl(var(--border))",
+                    background: "hsl(var(--secondary))", color: "hsl(var(--foreground))",
+                    fontFamily: "var(--font-sans)", fontSize: 15, fontWeight: 500,
+                    outline: "none", boxSizing: "border-box",
+                    borderColor: erroSenha && !loginUsuario.trim() ? "hsl(var(--destructive))" : "hsl(var(--border))",
+                  }}
+                />
               </div>
 
               <div>
-                <label style={{ fontFamily: "var(--font-mono)", fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase", color: "hsl(var(--muted-foreground))", marginBottom: 6, display: "block" }}>Perfil</label>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                  {([
-                    { value: "loja", label: "LOJA" },
-                    { value: "cd", label: "CD" },
-                  ] as const).map((option) => (
-                    <button
-                      key={option.value}
-                      onClick={() => { setFlag(option.value); setErroSenha(false); setRoleDetectado(null); }}
-                      style={{
-                        height: 46,
-                        borderRadius: 12,
-                        fontWeight: 700,
-                        fontSize: 13,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        cursor: "pointer",
-                        transition: "all 0.18s",
-                        background: flag === option.value ? "hsl(var(--foreground))" : "hsl(var(--secondary))",
-                        color: flag === option.value ? "hsl(var(--background))" : "hsl(var(--foreground))",
-                        border: flag === option.value ? "2px solid hsl(var(--foreground))" : "2px solid hsl(var(--border))",
-                        letterSpacing: "0.04em",
-                      }}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Senha */}
-              <div>
-                <label style={{ fontFamily: "var(--font-mono)", fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase", color: "hsl(var(--muted-foreground))", marginBottom: 6, display: "block" }}>Senha - {empresa} · {flag.toUpperCase()}</label>
+                <label style={{ fontFamily: "var(--font-mono)", fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase", color: "hsl(var(--muted-foreground))", marginBottom: 6, display: "block" }}>Senha</label>
                 <div style={{ display: "flex", gap: 8 }}>
                   <div style={{ position: "relative", flex: 1 }}>
                     <input
                       type={mostrarSenha ? "text" : "password"}
-                      inputMode={flag === "cd" ? "text" : "numeric"}
                       placeholder="Digite a senha"
                       data-tut="login-senha"
                       value={senha}
-                      onChange={(e) => { setSenha(e.target.value); setErroSenha(false); }}
+                      onChange={(e) => { setSenha(e.target.value); setErroSenha(false); setErroLogin(""); setUsuarioPendente(null); }}
                       onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-                      autoFocus
                       style={{
                         width: "100%", height: 48, padding: "0 16px",
                         borderRadius: 10, border: "1.5px solid hsl(var(--border))",
@@ -922,11 +859,49 @@ const Home = () => {
                   </div>
                 </div>
                 {erroSenha && (
-                  <p style={{ fontSize: 12, color: "hsl(var(--destructive))", marginTop: 5, fontWeight: 600 }}>âŒ Senha incorreta</p>
+                  <p style={{ fontSize: 12, color: "hsl(var(--destructive))", marginTop: 5, fontWeight: 600 }}>Login ou senha invalidos.</p>
                 )}
               </div>
 
-              {flag === "loja" && (
+              {empresasPermitidasLogin.length > 0 && (
+                <div data-tut="login-empresa">
+                  <label style={{ fontFamily: "var(--font-mono)", fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase", color: "hsl(var(--muted-foreground))", marginBottom: 6, display: "block" }}>Empresa</label>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {empresasPermitidasLogin.map((emp) => (
+                      <button key={emp} onClick={() => { setEmpresa(emp); setErroLogin(""); }}
+                        style={{
+                          height: 46, borderRadius: 12, fontWeight: 700, fontSize: 13,
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          cursor: "pointer", transition: "all 0.18s",
+                          background: empresa === emp ? "hsl(var(--foreground))" : "hsl(var(--secondary))",
+                          color: empresa === emp ? "hsl(var(--background))" : "hsl(var(--foreground))",
+                          border: empresa === emp ? "2px solid hsl(var(--foreground))" : "2px solid hsl(var(--border))",
+                          letterSpacing: "0.04em",
+                        }}
+                      >
+                        {emp}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {usuarioPendente && (
+                <div>
+                  <label style={{ fontFamily: "var(--font-mono)", fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase", color: "hsl(var(--muted-foreground))", marginBottom: 6, display: "block" }}>Perfil</label>
+                  <div style={{
+                    width: "100%", height: 48, padding: "0 16px",
+                    borderRadius: 10, border: "1.5px solid hsl(var(--border))",
+                    background: "hsl(var(--secondary))", color: "hsl(var(--foreground))",
+                    fontFamily: "var(--font-sans)", fontSize: 15, fontWeight: 600,
+                    display: "flex", alignItems: "center", boxSizing: "border-box",
+                  }}>
+                    {usuarioPendente.nome} · {usuarioPendente.role} · {flagLogin.toUpperCase()}
+                  </div>
+                </div>
+              )}
+
+              {usuarioPendente && flagLogin === "loja" && (
                 <div>
                   <label style={{ fontFamily: "var(--font-mono)", fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase", color: "hsl(var(--muted-foreground))", marginBottom: 6, display: "block" }}>Secao</label>
                   <input
@@ -947,43 +922,32 @@ const Home = () => {
                 </div>
               )}
 
-              {/* Nome da pessoa */}
-              <div>
-                <label style={{ fontFamily: "var(--font-mono)", fontSize: 9, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase", color: "hsl(var(--muted-foreground))", marginBottom: 6, display: "block" }}>Nome da pessoa</label>
-                <input
-                  type="text"
-                  placeholder="Ex: LUCAS"
-                  data-tut="login-pessoa"
-                  value={nomePessoa}
-                  onChange={(e) => setNomePessoa(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-                  style={{
-                    width: "100%", height: 48, padding: "0 16px",
-                    borderRadius: 10, border: "1.5px solid hsl(var(--border))",
-                    background: "hsl(var(--secondary))", color: "hsl(var(--foreground))",
-                    fontFamily: "var(--font-sans)", fontSize: 15, fontWeight: 500,
-                    outline: "none", boxSizing: "border-box",
-                  }}
-                />
-              </div>
+              {erroLogin && !erroSenha && (
+                <p style={{ fontSize: 12, color: "hsl(var(--destructive))", fontWeight: 700 }}>
+                  {erroLogin}
+                </p>
+              )}
 
               {/* Botão de login */}
               <button onClick={handleLogin}
+                disabled={loginCarregando}
                 data-tut="login-salvar"
                 style={{
                   width: "100%", height: 52, background: "hsl(var(--primary))",
                   color: "hsl(var(--primary-foreground))", border: "none",
                   borderRadius: 10, fontFamily: "var(--font-sans)", fontSize: 14, fontWeight: 700,
-                  cursor: "pointer", display: "flex", alignItems: "center",
+                  cursor: loginCarregando ? "wait" : "pointer", display: "flex", alignItems: "center",
                   justifyContent: "center", gap: 8, transition: "all 0.18s",
                   boxShadow: "var(--shadow-md)", marginTop: 8,
+                  opacity: loginCarregando ? 0.75 : 1,
                 }}
               >
-                <Store style={{ width: 18, height: 18 }} /> Salvar Login
+                {loginCarregando ? <Loader2 style={{ width: 18, height: 18 }} /> : <Store style={{ width: 18, height: 18 }} />}
+                {usuarioPendente ? "Entrar" : "Validar Login"}
               </button>
 
               <p style={{ fontSize: 11, color: "hsl(var(--muted-foreground))", textAlign: "center", marginTop: 8 }}>
-                Os dados serão salvos localmente e usados automaticamente ao criar novas listas.
+                A senha nao fica salva neste aparelho.
               </p>
             </div>
           </div>
@@ -1351,59 +1315,25 @@ const Home = () => {
                 </p>
               </div>
 
-               {/* Alterar Perfil */}
-               <div style={{ background: "hsl(var(--secondary))", border: "1px solid hsl(var(--border))", borderRadius: 10, padding: "16px" }}>
-                 <p style={{ fontSize: 13, fontWeight: 600, color: "hsl(var(--foreground))", marginBottom: 4 }}>Alterar Perfil de Acesso</p>
-                 <p style={{ fontSize: 12, color: "hsl(var(--muted-foreground))", marginBottom: 14 }}>
-                   Selecione o nível de acesso desejado:
-                 </p>
-                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                   {[
-                     { id: 'compras-newshop', label: 'Compras Newshop', desc: 'Módulo de compras da loja Newshop', Icon: ShoppingCart, color: 'hsl(var(--indigo))' },
-                     { id: 'compras-sf', label: 'Compras Soye e Facil', desc: 'Módulo de compras das lojas Soye e Facil', Icon: ShoppingCart, color: 'hsl(var(--success))' },
-                     { id: 'admin', label: 'ADMIN', desc: 'Acesso administrativo completo', Icon: Shield, color: 'hsl(var(--destructive))' },
-                   ].map(({ id, label, desc, Icon, color }) => (
-                     <button
-                       key={id}
-                       onClick={() => {
-                         setNivelSelecionado(id);
-                         setSenhaAcessoInput('');
-                         setErroSenhaAcesso(false);
-                         setMostrarSenhaAcesso(false);
-                         // Pre-marca as secoes ja salvas (se estiver reconfigurando o mesmo perfil).
-                         setSecoesSelecionadas(
-                           isNivelCompras(id) ? (loginSalvo?.secoesCompras ?? []) : []
-                         );
-                         setMostrarPopupSenhaAcesso(true);
-                       }}
-                       style={{
-                         width: "100%",
-                         padding: "14px 16px",
-                         borderRadius: 10,
-                         background: "hsl(var(--background))",
-                         border: "1.5px solid hsl(var(--border))",
-                         cursor: "pointer",
-                         textAlign: "left",
-                         display: "flex",
-                         alignItems: "center",
-                         gap: 12,
-                         transition: "all 0.18s",
-                       }}
-                     >
-                       <div style={{ width: 38, height: 38, borderRadius: 9, background: color + "22", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                         <Icon style={{ width: 17, height: 17, color }} />
-                       </div>
-                       <div style={{ flex: 1 }}>
-                         <p style={{ fontSize: 14, fontWeight: 700, color: "hsl(var(--foreground))", marginBottom: 1 }}>{label}</p>
-                         <p style={{ fontSize: 11, color: "hsl(var(--muted-foreground))" }}>{desc}</p>
-                       </div>
-                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="hsl(var(--muted-foreground))" strokeWidth="2">
-                         <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                       </svg>
-                     </button>
-                   ))}
-                 </div>
-               </div>
+              {loginSalvo?.role && hasAnyRoleAccess(loginSalvo.role, ['admin', 'super']) && (
+                <div style={{ background: "hsl(var(--secondary))", border: "1px solid hsl(var(--border))", borderRadius: 10, padding: "16px" }}>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: "hsl(var(--foreground))", marginBottom: 10 }}>Gestao de Usuarios</p>
+                  <button
+                    onClick={() => {
+                      setMostrarConfiguracoes(false);
+                      navigate("/usuarios");
+                    }}
+                    style={{
+                      width: "100%", height: 44, background: "hsl(var(--primary))",
+                      color: "hsl(var(--primary-foreground))", border: "none",
+                      borderRadius: 10, fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 800,
+                      cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                    }}
+                  >
+                    <Shield style={{ width: 17, height: 17 }} /> Abrir Usuarios
+                  </button>
+                </div>
+              )}
 
                {/* Informações do Sistema */}
                <div style={{ background: "hsl(var(--secondary))", border: "1px solid hsl(var(--border))", borderRadius: 10, padding: "16px" }}>
@@ -1467,133 +1397,6 @@ const Home = () => {
               <p style={{ fontSize: 11, color: "hsl(var(--muted-foreground))", textAlign: "center", marginTop: 8 }}>
                 As configurações são salvas automaticamente no seu dispositivo.
               </p>
-            </div>
-          </div>
-        </div>
-      )}
-      {/* Popup de senha para alterar perfil */}
-      {mostrarPopupSenhaAcesso && (
-        <div
-          onClick={(e) => { if (e.target === e.currentTarget) { setMostrarPopupSenhaAcesso(false); setNivelSelecionado(null); } }}
-          style={{
-            position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)",
-            backdropFilter: "blur(6px)", display: "flex",
-            alignItems: "center", justifyContent: "center",
-            zIndex: 1100,
-          }}
-        >
-          <div style={{
-            background: "hsl(var(--card))",
-            width: "calc(100% - 40px)",
-            maxWidth: 360,
-            borderRadius: 20,
-            padding: "24px 20px 28px",
-            animation: "fadeIn 0.22s ease",
-          }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
-              <div style={{ width: 44, height: 44, borderRadius: 12, background: "hsl(var(--primary) / 0.1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <Lock style={{ width: 20, height: 20, color: "hsl(var(--primary))" }} />
-              </div>
-              <div>
-                <p style={{ fontFamily: "var(--font-serif)", fontSize: 17, fontWeight: 700, color: "hsl(var(--foreground))" }}>
-                  {nivelSelecionado ? LABELS_NIVEL[nivelSelecionado] : ''}
-                </p>
-                <p style={{ fontSize: 12, color: "hsl(var(--muted-foreground))", marginTop: 1 }}>
-                  Digite a senha para confirmar
-                </p>
-              </div>
-            </div>
-
-            <div style={{ position: "relative", marginBottom: erroSenhaAcesso ? 8 : 16 }}>
-              <input
-                type={mostrarSenhaAcesso ? "text" : "password"}
-                placeholder="Senha de acesso"
-                value={senhaAcessoInput}
-                autoFocus
-                onChange={(e) => { setSenhaAcessoInput(e.target.value); setErroSenhaAcesso(false); }}
-                onKeyDown={(e) => e.key === "Enter" && handleAplicarPerfil()}
-                style={{
-                  width: "100%", height: 50, padding: "0 48px 0 16px",
-                  borderRadius: 10,
-                  border: `1.5px solid ${erroSenhaAcesso ? "hsl(var(--destructive))" : "hsl(var(--border))"}`,
-                  background: "hsl(var(--secondary))", color: "hsl(var(--foreground))",
-                  fontFamily: "var(--font-sans)", fontSize: 15, fontWeight: 500,
-                  outline: "none", boxSizing: "border-box",
-                }}
-              />
-              <button
-                onClick={() => setMostrarSenhaAcesso(!mostrarSenhaAcesso)}
-                style={{ position: "absolute", right: 14, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "hsl(var(--muted-foreground))", display: "flex" }}
-              >
-                {mostrarSenhaAcesso ? <EyeOff style={{ width: 16, height: 16 }} /> : <Eye style={{ width: 16, height: 16 }} />}
-              </button>
-            </div>
-
-            {erroSenhaAcesso && (
-              <p style={{ fontSize: 12, color: "hsl(var(--destructive))", marginBottom: 14, fontWeight: 600 }}>
-                Senha incorreta. Tente novamente.
-              </p>
-            )}
-
-            {/* Secoes do comprador: marca quais secoes esse perfil acompanha. */}
-            {isNivelCompras(nivelSelecionado) && (
-              <div style={{ marginBottom: 16 }}>
-                <p style={{ fontSize: 12, fontWeight: 600, color: "hsl(var(--foreground))", marginBottom: 2 }}>
-                  Secoes deste comprador
-                </p>
-                <p style={{ fontSize: 11, color: "hsl(var(--muted-foreground))", marginBottom: 10 }}>
-                  Ao abrir Compras, so essas secoes carregam. As demais ficam no filtro.
-                </p>
-                <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 200, overflowY: "auto" }}>
-                  {getSecoesDoNivel(nivelSelecionado).map((secao) => {
-                    const marcada = secoesSelecionadas.includes(secao);
-                    return (
-                      <button
-                        key={secao}
-                        type="button"
-                        onClick={() => toggleSecaoSelecionada(secao)}
-                        style={{
-                          display: "flex", alignItems: "center", gap: 10,
-                          padding: "10px 12px", borderRadius: 8, cursor: "pointer", textAlign: "left",
-                          background: marcada ? "hsl(var(--primary) / 0.1)" : "hsl(var(--secondary))",
-                          border: `1.5px solid ${marcada ? "hsl(var(--primary))" : "hsl(var(--border))"}`,
-                        }}
-                      >
-                        <span style={{
-                          width: 18, height: 18, borderRadius: 5, flexShrink: 0,
-                          display: "flex", alignItems: "center", justifyContent: "center",
-                          background: marcada ? "hsl(var(--primary))" : "transparent",
-                          border: `1.5px solid ${marcada ? "hsl(var(--primary))" : "hsl(var(--muted-foreground))"}`,
-                          color: "hsl(var(--primary-foreground))", fontSize: 12, fontWeight: 700,
-                        }}>
-                          {marcada ? "✓" : ""}
-                        </span>
-                        <span style={{ fontSize: 13, fontWeight: 500, color: "hsl(var(--foreground))" }}>{secao}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-                <p style={{ fontSize: 11, color: "hsl(var(--muted-foreground))", marginTop: 8 }}>
-                  {secoesSelecionadas.length === 0
-                    ? "Nenhuma marcada = ve todas as secoes."
-                    : `${secoesSelecionadas.length} secao(oes) selecionada(s).`}
-                </p>
-              </div>
-            )}
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              <button
-                onClick={() => { setMostrarPopupSenhaAcesso(false); setNivelSelecionado(null); setSenhaAcessoInput(''); setSecoesSelecionadas([]); }}
-                style={{ height: 48, borderRadius: 10, background: "hsl(var(--secondary))", color: "hsl(var(--foreground))", border: "1.5px solid hsl(var(--border))", fontWeight: 600, fontSize: 14, cursor: "pointer" }}
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleAplicarPerfil}
-                style={{ height: 48, borderRadius: 10, background: "hsl(var(--primary))", color: "hsl(var(--primary-foreground))", border: "none", fontWeight: 700, fontSize: 14, cursor: "pointer", boxShadow: "0 4px 12px hsl(var(--primary) / 0.3)" }}
-              >
-                Confirmar
-              </button>
             </div>
           </div>
         </div>

@@ -2,14 +2,15 @@ import { useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   ScanBarcode, ClipboardList, GitCompare, BadgeDollarSign,
-  Package, ShoppingCart, BarChart3, Kanban, User, Settings,
+  Package, ShoppingCart, BarChart3, Users, User, Settings,
   ChevronDown, ChevronRight, LogOut, Menu, Home as HomeIcon,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { hasAnyRoleAccess } from "@/components/ProtectedRoute";
 import type { LoginData } from "@/hooks/useAuth";
 
 interface NavItemDef {
-  icon: React.ComponentType<{ size?: number; style?: React.CSSProperties }>;
+  icon: LucideIcon;
   label: string;
   path?: string;
   onClick?: () => void;
@@ -78,6 +79,13 @@ export function ErpLayout({
       items: [
         { icon: ShoppingCart, label: "Compras", path: "/compras" },
         { icon: BarChart3, label: "Dashboard", path: "/dashboard" },
+      ],
+    }] : []),
+    ...(isAdm ? [{
+      key: "admin",
+      label: "Admin",
+      items: [
+        { icon: Users, label: "Usuarios", path: "/usuarios" },
       ],
     }] : []),
   ];

@@ -1,159 +1,215 @@
 import { useState, useEffect } from "react";
 import { applyCompanyTheme } from "@/lib/companyTheme";
+import { isSupabaseConfigured, supabase } from "@/lib/supabaseClient";
 
-type Empresa = "NEWSHOP" | "SOYE" | "FACIL";
+export type Empresa = "NEWSHOP" | "SOYE" | "FACIL";
 export type LoginFlag = "loja" | "cd";
-export type UserRole = 'operador' | 'compras' | 'admin' | 'super';
+export type UserRole = "operador" | "compras" | "admin" | "super";
 
 export interface LoginData {
   empresa: Empresa;
-  senha: string; // senha digitada (não armazenar a correta)
   tituloPadrao: string;
   nomePessoa: string;
   flag: LoginFlag;
-  role: UserRole; // NOVO: perfil do usuário
-  // Secoes que o comprador (role 'compras') acompanha. Definido no perfil
-  // ("Alterar Perfil de Acesso"). Vazio/ausente = ve todas as secoes.
+  role: UserRole;
   secoesCompras?: string[];
+  usuarioId?: string;
+  login?: string;
+  empresasPermitidas?: Empresa[];
 }
+
+export interface UsuarioLoginContext {
+  id: string;
+  login: string;
+  nome: string;
+  role: UserRole;
+  empresasPermitidas: Empresa[];
+  flagDefault: LoginFlag;
+  secoesCompras: string[];
+}
+
+export interface LoginRequest {
+  login: string;
+  senha: string;
+  empresaSelecionada?: Empresa;
+  tituloPadrao?: string;
+  flag?: LoginFlag;
+}
+
+export type LoginResult =
+  | { sucesso: true; loginSalvo: LoginData }
+  | { sucesso: false; motivo: "supabase_nao_configurado" | "credencial_invalida" | "empresa_nao_permitida" | "titulo_obrigatorio" | "selecionar_empresa"; contexto?: UsuarioLoginContext };
 
 const STORAGE_KEY = "scan_newshop_login";
 
-// Senhas fixas para operadores (não devem ser expostas no frontend, mas como é um app offline, ficam aqui)
-const SENHAS_OPERADOR: Record<Empresa, string> = {
-  "NEWSHOP": "1148",
-  "SOYE": "1090", 
-  "FACIL": "2461"
+const EMPRESAS_VALIDAS: Empresa[] = ["NEWSHOP", "SOYE", "FACIL"];
+const ROLES_VALIDOS: UserRole[] = ["operador", "compras", "admin", "super"];
+
+type LoginUsuarioRow = {
+  id?: string;
+  login?: string;
+  nome?: string;
+  role?: string;
+  empresas?: string[];
+  flag_default?: string;
+  secoes_compras?: string[];
 };
 
-const SENHAS_CD: Record<Empresa, string> = {
-  "NEWSHOP": "n91",
-  "SOYE": "s91",
-  "FACIL": "f91"
+const normalizarEmpresa = (value: unknown): Empresa | null => {
+  const normalized = String(value ?? "").trim().toUpperCase();
+  if (normalized.includes("NEWSHOP")) return "NEWSHOP";
+  if (normalized.includes("SOYE")) return "SOYE";
+  if (normalized.includes("FACIL")) return "FACIL";
+  return null;
 };
 
-// Senhas especiais para perfis avançados
-// isSF=true → senha válida para SOYE ou FACIL (grupo SF)
-const SENHAS_ESPECIAIS: Record<string, { role: UserRole; empresa: Empresa; isSF?: boolean }> = {
-  'Compras1148':  { role: 'compras', empresa: 'NEWSHOP' },
-  'ComprasSF':    { role: 'compras', empresa: 'SOYE', isSF: true },
-  'Ad1148':       { role: 'admin',   empresa: 'NEWSHOP' },
-  'Admin1148':    { role: 'super',   empresa: 'NEWSHOP' },
-  'Admin2461':    { role: 'super',   empresa: 'NEWSHOP' },
-  'Admin1090':    { role: 'super',   empresa: 'NEWSHOP' },
-  'Admin1316':    { role: 'super',   empresa: 'NEWSHOP' },
+const normalizarFlag = (value: unknown): LoginFlag => (String(value ?? "").toLowerCase() === "cd" ? "cd" : "loja");
+
+const normalizarRole = (value: unknown): UserRole => {
+  const role = String(value ?? "").toLowerCase() as UserRole;
+  return ROLES_VALIDOS.includes(role) ? role : "operador";
 };
 
-// Validação de senha e detecção de role
-export function validarSenha(empresa: Empresa, senhaDigitada: string, flag: LoginFlag = 'loja'): { valido: boolean; role: UserRole } {
-  // Primeiro verifica se é senha especial
-  const senhaEspecial = SENHAS_ESPECIAIS[senhaDigitada];
-  if (senhaEspecial) {
-    const match = senhaEspecial.isSF
-      ? (empresa === 'SOYE' || empresa === 'FACIL')
-      : senhaEspecial.empresa === empresa;
-    return match ? { valido: true, role: senhaEspecial.role } : { valido: false, role: 'operador' };
-  }
-  
-  // Depois verifica se é senha de operador normal
-  const senhaEsperada = flag === 'cd' ? SENHAS_CD[empresa] : SENHAS_OPERADOR[empresa];
-  const valido = senhaEsperada === senhaDigitada;
-  return { valido, role: 'operador' };
+const normalizarEmpresas = (values: unknown): Empresa[] => {
+  const raw = Array.isArray(values) ? values : [];
+  const empresas = raw.map(normalizarEmpresa).filter((empresa): empresa is Empresa => !!empresa);
+  return [...new Set(empresas)];
+};
+
+const toStringArray = (values: unknown): string[] => {
+  if (!Array.isArray(values)) return [];
+  return values.map((value) => String(value ?? "").trim()).filter(Boolean);
+};
+
+function montarContextoUsuario(row: LoginUsuarioRow): UsuarioLoginContext | null {
+  const empresasPermitidas = normalizarEmpresas(row.empresas);
+  if (!row.id || !row.login || !row.nome || empresasPermitidas.length === 0) return null;
+
+  return {
+    id: row.id,
+    login: row.login,
+    nome: row.nome,
+    role: normalizarRole(row.role),
+    empresasPermitidas,
+    flagDefault: normalizarFlag(row.flag_default),
+    secoesCompras: toStringArray(row.secoes_compras),
+  };
 }
 
-// Salvar login no localStorage
-export function salvarLogin(data: LoginData): void {
+function salvarLogin(data: LoginData): void {
   try {
-    // Não armazenar a senha correta, apenas marcar que a senha foi validada
-    const { senha, ...dadosParaSalvar } = data;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(dadosParaSalvar));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     applyCompanyTheme(data.empresa);
   } catch (err) {
-    console.error('Erro ao salvar login:', err);
+    console.error("Erro ao salvar login:", err);
   }
 }
 
-// Obter login salvo
-export function obterLoginSalvo(): Omit<LoginData, 'senha'> | null {
+export function obterLoginSalvo(): LoginData | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    const dados = JSON.parse(raw);
+    const dados = JSON.parse(raw) as Partial<LoginData>;
+    const empresa = normalizarEmpresa(dados.empresa);
+    if (!empresa) return null;
 
-    // Backward compatibility: se não tiver role, assume 'operador'
-    if (!dados.role) {
-      dados.role = 'operador';
-    }
+    const flag = normalizarFlag(dados.flag);
+    const role = normalizarRole(dados.role);
+    const empresasPermitidas = normalizarEmpresas(dados.empresasPermitidas);
 
-    if (!dados.flag) {
-      dados.flag = 'loja';
-    }
-
-    if (dados.flag === 'cd' && !dados.tituloPadrao) {
-      dados.tituloPadrao = 'CD';
-    }
-
-    return dados;
+    return {
+      empresa,
+      tituloPadrao: flag === "cd" ? "CD" : String(dados.tituloPadrao ?? ""),
+      nomePessoa: String(dados.nomePessoa ?? ""),
+      flag,
+      role,
+      secoesCompras: toStringArray(dados.secoesCompras),
+      usuarioId: dados.usuarioId ? String(dados.usuarioId) : undefined,
+      login: dados.login ? String(dados.login) : undefined,
+      empresasPermitidas: empresasPermitidas.length > 0 ? empresasPermitidas : [empresa],
+    };
   } catch {
     return null;
   }
 }
 
-// Remover login (logout)
 export function removerLogin(): void {
   localStorage.removeItem(STORAGE_KEY);
   applyCompanyTheme("NEWSHOP");
 }
 
-// Hook para gerenciar autenticação
 export function useAuth() {
-  const [loginSalvo, setLoginSalvo] = useState<Omit<LoginData, 'senha'> | null>(() => obterLoginSalvo());
+  const [loginSalvo, setLoginSalvo] = useState<LoginData | null>(() => obterLoginSalvo());
   const [mostrarModalLogin, setMostrarModalLogin] = useState(false);
 
-  // Verificar se precisa mostrar modal de login ao montar o componente
   useEffect(() => {
-    // Se não há login salvo, mostrar modal imediatamente
-    if (!loginSalvo) {
-      setMostrarModalLogin(true);
-    }
+    if (!loginSalvo) setMostrarModalLogin(true);
   }, [loginSalvo]);
 
-  const fazerLogin = (data: LoginData): boolean => {
-    const { valido, role } = validarSenha(data.empresa, data.senha, data.flag);
-    if (!valido) {
-      return false;
+  const fazerLogin = async (request: LoginRequest): Promise<LoginResult> => {
+    if (!isSupabaseConfigured) {
+      return { sucesso: false, motivo: "supabase_nao_configurado" };
     }
 
-    const flag = data.flag ?? 'loja';
-    const nomePessoa = data.nomePessoa.trim();
-    const tituloPadrao = flag === 'cd' ? 'CD' : data.tituloPadrao.trim();
-
-    if (!nomePessoa) {
-      return false;
+    const login = request.login.trim().toLowerCase();
+    const senha = request.senha;
+    if (!login || !senha) {
+      return { sucesso: false, motivo: "credencial_invalida" };
     }
 
-    if (flag === 'loja' && !tituloPadrao) {
-      return false;
-    }
-
-    // Adiciona o role detectado aos dados de login
-    const dadosComRole = { ...data, role, flag, nomePessoa, tituloPadrao };
-    salvarLogin(dadosComRole);
-    setLoginSalvo({ 
-      empresa: data.empresa, 
-      tituloPadrao,
-      nomePessoa,
-      flag,
-      role
+    const { data, error } = await supabase.rpc("login_usuario", {
+      p_login: login,
+      p_senha: senha,
     });
+
+    if (error) {
+      console.error("[auth] login_usuario falhou", error);
+      return { sucesso: false, motivo: "credencial_invalida" };
+    }
+
+    const row = Array.isArray(data) ? (data[0] as LoginUsuarioRow | undefined) : undefined;
+    const contexto = row ? montarContextoUsuario(row) : null;
+    if (!contexto) {
+      return { sucesso: false, motivo: "credencial_invalida" };
+    }
+
+    if (!request.empresaSelecionada && contexto.empresasPermitidas.length > 1) {
+      return { sucesso: false, motivo: "selecionar_empresa", contexto };
+    }
+
+    const empresa = request.empresaSelecionada ?? contexto.empresasPermitidas[0];
+    if (!empresa || !contexto.empresasPermitidas.includes(empresa)) {
+      return { sucesso: false, motivo: "empresa_nao_permitida", contexto };
+    }
+
+    const flag = request.flag ?? contexto.flagDefault;
+    const tituloPadrao = flag === "cd" ? "CD" : (request.tituloPadrao ?? "").trim();
+    if (flag === "loja" && !tituloPadrao) {
+      return { sucesso: false, motivo: "titulo_obrigatorio", contexto };
+    }
+
+    const dados: LoginData = {
+      empresa,
+      tituloPadrao,
+      nomePessoa: contexto.nome,
+      flag,
+      role: contexto.role,
+      secoesCompras: contexto.secoesCompras,
+      usuarioId: contexto.id,
+      login: contexto.login,
+      empresasPermitidas: contexto.empresasPermitidas,
+    };
+
+    salvarLogin(dados);
+    setLoginSalvo(dados);
     setMostrarModalLogin(false);
-    return true;
+    return { sucesso: true, loginSalvo: dados };
   };
 
   const fazerLogout = (): void => {
     removerLogin();
     setLoginSalvo(null);
-    setMostrarModalLogin(true); // Mostrar modal de login novamente
+    setMostrarModalLogin(true);
   };
 
   return {
@@ -162,7 +218,5 @@ export function useAuth() {
     setMostrarModalLogin,
     fazerLogin,
     fazerLogout,
-    senhasOperador: SENHAS_OPERADOR, // Para referência (não exibir na UI)
-    senhasEspeciais: SENHAS_ESPECIAIS // Para referência (não exibir na UI)
   };
 }

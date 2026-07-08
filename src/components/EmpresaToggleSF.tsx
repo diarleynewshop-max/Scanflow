@@ -18,9 +18,14 @@ export function EmpresaToggleSF() {
   const elevado = login.role === "compras" || login.role === "admin" || login.role === "super";
   if (!elevado) return null;
 
-  const CICLO: Array<"NEWSHOP" | "SOYE" | "FACIL"> = ["NEWSHOP", "SOYE", "FACIL"];
+  const CICLO: Array<"NEWSHOP" | "SOYE" | "FACIL"> =
+    login.empresasPermitidas && login.empresasPermitidas.length > 0
+      ? login.empresasPermitidas
+      : [login.empresa];
+  if (CICLO.length < 2) return null;
+
   const atualIdx = CICLO.indexOf(login.empresa as any);
-  const proxima = CICLO[(atualIdx + 1) % CICLO.length];
+  const proxima = CICLO[((atualIdx >= 0 ? atualIdx : 0) + 1) % CICLO.length];
 
   const trocar = () => {
     try {
