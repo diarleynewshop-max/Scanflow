@@ -196,7 +196,7 @@ returns table (
 )
 language sql
 security definer
-set search_path = public
+set search_path = public, extensions
 as $$
   select u.id, u.login, u.nome, u.role, u.empresas, u.flag_default, u.secoes_compras
     from public.usuarios u
@@ -211,7 +211,7 @@ create or replace function public.usuario_admin_autorizado(p_actor_login text, p
 returns boolean
 language sql
 security definer
-set search_path = public
+set search_path = public, extensions
 as $$
   select exists (
     select 1
@@ -257,7 +257,7 @@ create or replace function public.admin_listar_usuarios(
 )
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, extensions
 as $$
 begin
   if not public.usuario_admin_autorizado(p_actor_login, p_actor_senha) then
@@ -286,7 +286,7 @@ create or replace function public.admin_criar_usuario(
 ) returns uuid
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, extensions
 as $$
 declare
   v_id uuid;
@@ -348,7 +348,7 @@ create or replace function public.admin_atualizar_usuario(
 ) returns void
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, extensions
 as $$
 declare
   v_empresas text[];
@@ -394,7 +394,7 @@ create or replace function public.admin_redefinir_senha(
 ) returns void
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, extensions
 as $$
 begin
   if not public.usuario_admin_autorizado(p_actor_login, p_actor_senha) then

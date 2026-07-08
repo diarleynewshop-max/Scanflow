@@ -204,7 +204,12 @@ const Home = () => {
     return localStorage.getItem('modoEscuro') === 'true';
   });
   const [modoDesktop, setModoDesktop] = useState(() => {
-    return localStorage.getItem('modoDesktop') === 'true';
+    // Sem preferencia salva, segue o tamanho real do aparelho (PC >= 1024px).
+    // Se o usuario tiver escolhido no toggle, a escolha dele vence.
+    const salvo = localStorage.getItem('modoDesktop');
+    if (salvo === 'true') return true;
+    if (salvo === 'false') return false;
+    return typeof window !== 'undefined' && window.innerWidth >= 1024;
   });
   const [modoLeve, setModoLeve] = useState(() => getLightModeEnabled());
   const [historicoCompras, setHistoricoCompras] = useState(() => getHistoricoComprasEnabled());

@@ -144,7 +144,13 @@ const Index = () => {
   const [showPhotoCapture, setShowPhotoCapture] = useState(false);
   const [photoProductId, setPhotoProductId] = useState<string | null>(null);
 
-  const [modoDesktop, setModoDesktop] = useState(() => localStorage.getItem("modoDesktop") === "true");
+  const [modoDesktop, setModoDesktop] = useState(() => {
+    // Sem preferencia salva, segue o tamanho real do aparelho (PC >= 1024px).
+    const salvo = localStorage.getItem("modoDesktop");
+    if (salvo === "true") return true;
+    if (salvo === "false") return false;
+    return typeof window !== "undefined" && window.innerWidth >= 1024;
+  });
   const [modoLeve, setModoLeve] = useState(() => getLightModeEnabled());
   const [popupCompras, setPopupCompras] = useState<{ ocorrencias: HistoricoItemOcorrencia[]; carregando: boolean } | null>(null);
   const popupMostradoParaRef = useRef<string | null>(null);
