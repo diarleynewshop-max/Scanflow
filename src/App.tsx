@@ -17,8 +17,7 @@ const Home = lazy(() => import("./pages/Home"));
 const Index = lazy(() => import("./pages/Index"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const Analytics = lazy(() => import("./pages/Analytics"));
-// Dashboard temporariamente em manutencao (migracao Supabase) — ver rota /dashboard.
-const EmManutencao = lazy(() => import("./pages/EmManutencao"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Compras = lazy(() => import("./pages/Compras"));
 const ConsultaPreco = lazy(() => import("./pages/ConsultaPreco"));
 const MeusPedidos = lazy(() => import("./pages/MeusPedidos"));
@@ -76,7 +75,7 @@ const App = () => (
 
             <Route path="/dashboard" element={
               <ProtectedRoute requiredRole={['compras', 'admin', 'super']}>
-                <DesktopShell pageTitle="Dashboard"><EmManutencao titulo="Dashboard" /></DesktopShell>
+                <DesktopShell pageTitle="Dashboard"><Dashboard /></DesktopShell>
               </ProtectedRoute>
             } />
 

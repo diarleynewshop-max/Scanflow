@@ -13,6 +13,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/useAuth";
 import {
+  PERIODO_OPCOES,
+  resolverDatasPeriodo,
+  type PeriodoFiltro,
+} from "@/lib/periodoFiltro";
+import {
   carregarItensDoPedido,
   listarPedidos,
   type MeuPedidoResumo,
@@ -28,7 +33,6 @@ const ITEM_STATUS_META: Record<string, { label: string; classes: string }> = {
 };
 
 type EscopoPessoa = "todos" | "meus";
-type PeriodoFiltro = "total" | "7" | "15" | "30" | "intervalo";
 type StatusKey = "pendente" | "analisado" | "em_andamento" | "concluido";
 
 const STATUS_META: Record<StatusKey, { label: string; classes: string }> = {
@@ -49,14 +53,6 @@ const STATUS_META: Record<StatusKey, { label: string; classes: string }> = {
     classes: "border-emerald-300 bg-emerald-100 text-emerald-800",
   },
 };
-
-const PERIODO_OPCOES: Array<{ value: PeriodoFiltro; label: string }> = [
-  { value: "total", label: "Total" },
-  { value: "7", label: "7 dias" },
-  { value: "15", label: "15 dias" },
-  { value: "30", label: "30 dias" },
-  { value: "intervalo", label: "Intervalo" },
-];
 
 function getItemStatusMeta(status: string) {
   return ITEM_STATUS_META[status] ?? ITEM_STATUS_META.pendente;
@@ -83,31 +79,6 @@ function formatDate(value: string | null): string {
   return new Intl.DateTimeFormat("pt-BR", {
     dateStyle: "short",
   }).format(date);
-}
-
-function formatDateInputValue(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function resolverDatas(periodo: PeriodoFiltro, dataInicio: string, dataFim: string): { dataInicio?: string; dataFim?: string } {
-  if (periodo === "intervalo") {
-    return {
-      dataInicio: dataInicio || undefined,
-      dataFim: dataFim || undefined,
-    };
-  }
-
-  if (periodo === "total") return {};
-
-  const dias = Number(periodo);
-  if (!Number.isFinite(dias) || dias <= 0) return {};
-
-  const data = new Date();
-  data.setDate(data.getDate() - dias);
-  return { dataInicio: formatDateInputValue(data) };
 }
 
 function useDebouncedValue(value: string, delay = 300): string {
@@ -224,7 +195,7 @@ export default function MeusPedidos() {
     try {
       const pessoaFiltro = escopoPessoa === "meus" ? nomeLogado || undefined : buscaPessoa.trim() || undefined;
       const produtoBusca = buscaProduto.trim() || undefined;
-      const datas = resolverDatas(periodo, dataInicio, dataFim);
+      const datas = resolverDatasPeriodo(periodo, dataInicio, dataFim);
 
       const data = await listarPedidos({
         empresa,

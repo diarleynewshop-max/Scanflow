@@ -48,7 +48,7 @@ const comprasMenuItems = [
 
 // Menu para analytics (admin, super)
 const analyticsMenuItems = [
-  { Icon: BarChart3,    label: "Dashboard",   description: "Relatórios e gráficos de conferência",  path: "/dashboard", accent: "hsl(var(--violet))", manutencao: true },
+  { Icon: BarChart3,    label: "Dashboard",   description: "Relatórios e gráficos de conferência",  path: "/dashboard", accent: "hsl(var(--violet))" },
 ];
 
 // Menu exclusivo admin (admin, super) — vazio ate a proxima ferramenta admin-only ser criada.
@@ -576,7 +576,7 @@ const Home = () => {
           
           {/* Cards para analytics (se tiver acesso) */}
           {loginSalvo?.role && hasAnyRoleAccess(loginSalvo.role, ['compras', 'admin', 'super']) && (
-            analyticsMenuItems.map(({ Icon, label, description, path, accent, manutencao }) => (
+            analyticsMenuItems.map(({ Icon, label, description, path, accent }) => (
               <div key={label}>
                 <MenuCard
                   Icon={Icon}
@@ -584,7 +584,6 @@ const Home = () => {
                   description={description}
                   path={path}
                   accent={accent}
-                  manutencao={manutencao}
                   navigate={navigate}
                   setMostrarPerfil={setMostrarPerfil}
                   setMostrarConfiguracoes={setMostrarConfiguracoes}
