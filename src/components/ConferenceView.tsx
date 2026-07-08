@@ -1192,11 +1192,12 @@ const ConferenceView = ({ onBack, empresa: empresaProp, flag: flagProp, modoDesk
       { value: "loja", label: "LOJA" },
       { value: "cd", label: "CD" },
     ];
+    const empresasPermitidas = loginSalvo?.empresasPermitidas ?? [];
     const empresaOptions: { value: string; label: string; color: string }[] = [
       { value: "NEWSHOP", label: "NEWSHOP", color: "hsl(var(--primary))"  },
       { value: "SOYE",    label: "SOYE",    color: "hsl(142 72% 29%)"     },
       { value: "FACIL",   label: "FACIL",   color: "hsl(30 95% 50%)"      },
-    ];
+    ].filter((opt) => empresasPermitidas.length === 0 || empresasPermitidas.includes(opt.value as (typeof empresasPermitidas)[number]));
 
     return (
       <div className="p-4 space-y-4">
