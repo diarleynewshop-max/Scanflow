@@ -57,7 +57,7 @@ const App = () => (
 
             <Route path="/meus-pedidos" element={
               <ProtectedRoute requiredRole={['operador', 'compras', 'admin', 'super']}>
-                <DesktopShell pageTitle="Meus Pedidos"><MeusPedidos /></DesktopShell>
+                <DesktopShell pageTitle="Pedidos"><MeusPedidos /></DesktopShell>
               </ProtectedRoute>
             } />
 

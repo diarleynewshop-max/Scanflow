@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
   ChevronDown,
@@ -10,8 +10,14 @@ import {
   RefreshCw,
   UserRound,
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/useAuth";
-import { carregarItensDoPedido, listarMeusPedidos, type MeuPedidoResumo, type PedidoFilaItem } from "@/lib/pedidosFila";
+import {
+  carregarItensDoPedido,
+  listarPedidos,
+  type MeuPedidoResumo,
+  type PedidoFilaItem,
+} from "@/lib/pedidosFila";
 import { isSupabaseConfigured, supabase } from "@/lib/supabaseClient";
 
 const ITEM_STATUS_META: Record<string, { label: string; classes: string }> = {
@@ -21,10 +27,8 @@ const ITEM_STATUS_META: Record<string, { label: string; classes: string }> = {
   pendente: { label: "Pendente", classes: "border-slate-200 bg-slate-50 text-slate-700" },
 };
 
-function getItemStatusMeta(status: string) {
-  return ITEM_STATUS_META[status] ?? ITEM_STATUS_META.pendente;
-}
-
+type EscopoPessoa = "todos" | "meus";
+type PeriodoFiltro = "total" | "7" | "15" | "30" | "intervalo";
 type StatusKey = "pendente" | "analisado" | "em_andamento" | "concluido";
 
 const STATUS_META: Record<StatusKey, { label: string; classes: string }> = {
@@ -45,6 +49,18 @@ const STATUS_META: Record<StatusKey, { label: string; classes: string }> = {
     classes: "border-emerald-300 bg-emerald-100 text-emerald-800",
   },
 };
+
+const PERIODO_OPCOES: Array<{ value: PeriodoFiltro; label: string }> = [
+  { value: "total", label: "Total" },
+  { value: "7", label: "7 dias" },
+  { value: "15", label: "15 dias" },
+  { value: "30", label: "30 dias" },
+  { value: "intervalo", label: "Intervalo" },
+];
+
+function getItemStatusMeta(status: string) {
+  return ITEM_STATUS_META[status] ?? ITEM_STATUS_META.pendente;
+}
 
 function getStatusMeta(status: string) {
   return STATUS_META[(status as StatusKey) ?? "pendente"] ?? STATUS_META.pendente;
@@ -69,6 +85,57 @@ function formatDate(value: string | null): string {
   }).format(date);
 }
 
+function formatDateInputValue(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function resolverDatas(periodo: PeriodoFiltro, dataInicio: string, dataFim: string): { dataInicio?: string; dataFim?: string } {
+  if (periodo === "intervalo") {
+    return {
+      dataInicio: dataInicio || undefined,
+      dataFim: dataFim || undefined,
+    };
+  }
+
+  if (periodo === "total") return {};
+
+  const dias = Number(periodo);
+  if (!Number.isFinite(dias) || dias <= 0) return {};
+
+  const data = new Date();
+  data.setDate(data.getDate() - dias);
+  return { dataInicio: formatDateInputValue(data) };
+}
+
+function useDebouncedValue(value: string, delay = 300): string {
+  const [debounced, setDebounced] = useState(value);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => setDebounced(value), delay);
+    return () => window.clearTimeout(timeoutId);
+  }, [delay, value]);
+
+  return debounced;
+}
+
+function getFiltroButtonClasses(active: boolean, disabled = false): string {
+  const base =
+    "inline-flex items-center justify-center rounded-xl border px-3 py-2 text-sm font-semibold transition";
+
+  if (disabled) {
+    return `${base} cursor-not-allowed border-border bg-muted/60 text-muted-foreground opacity-60`;
+  }
+
+  if (active) {
+    return `${base} border-primary bg-primary text-primary-foreground shadow-sm`;
+  }
+
+  return `${base} border-border bg-background text-foreground hover:bg-accent`;
+}
+
 function ResumoChip(props: { label: string; value: number; classes: string }) {
   return (
     <div className={`rounded-xl border px-3 py-2 ${props.classes}`}>
@@ -88,16 +155,36 @@ export default function MeusPedidos() {
   const [itensPorPedido, setItensPorPedido] = useState<Record<string, PedidoFilaItem[]>>({});
   const [carregandoItensId, setCarregandoItensId] = useState<string | null>(null);
   const [erroItensId, setErroItensId] = useState<string | null>(null);
+  const [escopoPessoa, setEscopoPessoa] = useState<EscopoPessoa>("todos");
+  const [buscaProduto, setBuscaProduto] = useState("");
+  const [buscaPessoa, setBuscaPessoa] = useState("");
+  const [periodo, setPeriodo] = useState<PeriodoFiltro>("total");
+  const [dataInicio, setDataInicio] = useState("");
+  const [dataFim, setDataFim] = useState("");
+
+  const buscaProdutoDebounced = useDebouncedValue(buscaProduto);
+  const buscaPessoaDebounced = useDebouncedValue(buscaPessoa);
+  const carregamentoRef = useRef(0);
+  const carregarRef = useRef<(silent?: boolean) => Promise<void>>(async () => undefined);
 
   const empresa = loginSalvo?.empresa ?? "NEWSHOP";
   const flag = loginSalvo?.flag ?? "loja";
-  const pessoa = loginSalvo?.nomePessoa ?? "";
+  const nomeLogado = String(loginSalvo?.nomePessoa ?? "").trim();
+  const pessoaBadgeAtiva = escopoPessoa === "todos";
+  const filtrosAtivos =
+    escopoPessoa === "meus" ||
+    (escopoPessoa === "todos" && Boolean(buscaPessoa.trim())) ||
+    Boolean(buscaProduto.trim()) ||
+    periodo !== "total";
 
   const carregar = async (silent = false) => {
-    if (!loginSalvo?.nomePessoa) {
+    const requestId = ++carregamentoRef.current;
+
+    if (!loginSalvo) {
       setPedidos([]);
-      setError("Login sem nome de operador.");
+      setError("Login nao encontrado.");
       setLoading(false);
+      setRefreshing(false);
       return;
     }
 
@@ -105,6 +192,15 @@ export default function MeusPedidos() {
       setPedidos([]);
       setError("Supabase nao configurado neste ambiente.");
       setLoading(false);
+      setRefreshing(false);
+      return;
+    }
+
+    if (escopoPessoa === "meus" && !nomeLogado) {
+      setPedidos([]);
+      setError("Login sem nome de operador para filtrar meus pedidos.");
+      setLoading(false);
+      setRefreshing(false);
       return;
     }
 
@@ -115,22 +211,40 @@ export default function MeusPedidos() {
     }
 
     try {
-      const data = await listarMeusPedidos(empresa, flag, pessoa);
+      const pessoaFiltro = escopoPessoa === "meus" ? nomeLogado || undefined : buscaPessoa.trim() || undefined;
+      const produtoBusca = buscaProduto.trim() || undefined;
+      const datas = resolverDatas(periodo, dataInicio, dataFim);
+
+      const data = await listarPedidos({
+        empresa,
+        flag,
+        pessoa: pessoaFiltro,
+        produtoBusca,
+        ...datas,
+      });
+
+      if (requestId !== carregamentoRef.current) return;
+
       setPedidos(data);
       setError(null);
     } catch (err) {
+      if (requestId !== carregamentoRef.current) return;
       console.error("[MeusPedidos] Falha ao listar pedidos:", err);
-      setError("Nao foi possivel carregar seus pedidos agora.");
+      setError("Nao foi possivel carregar os pedidos agora.");
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (requestId === carregamentoRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   };
+
+  carregarRef.current = carregar;
 
   useEffect(() => {
     void carregar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [empresa, flag, pessoa]);
+  }, [empresa, flag, nomeLogado, escopoPessoa, buscaProdutoDebounced, buscaPessoaDebounced, periodo, dataInicio, dataFim]);
 
   const toggleItens = async (pedidoId: string) => {
     if (expandidoId === pedidoId) {
@@ -155,15 +269,15 @@ export default function MeusPedidos() {
   };
 
   useEffect(() => {
-    if (!loginSalvo?.nomePessoa || !isSupabaseConfigured) return;
+    if (!loginSalvo || !isSupabaseConfigured) return;
 
     const channel = supabase
-      .channel(`meus-pedidos:${empresa}:${flag}:${pessoa}`)
+      .channel(`pedidos:${empresa}:${flag}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "pedidos", filter: `empresa=eq.${empresa}` },
         () => {
-          void carregar(true);
+          void carregarRef.current(true);
         }
       )
       .subscribe();
@@ -171,14 +285,16 @@ export default function MeusPedidos() {
     return () => {
       void supabase.removeChannel(channel);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [empresa, flag, pessoa, loginSalvo?.nomePessoa]);
+  }, [empresa, flag, loginSalvo]);
 
-  const stats = useMemo(() => ({
-    total: pedidos.length,
-    abertos: pedidos.filter((pedido) => pedido.status !== "concluido").length,
-    concluidos: pedidos.filter((pedido) => pedido.status === "concluido").length,
-  }), [pedidos]);
+  const stats = useMemo(
+    () => ({
+      total: pedidos.length,
+      abertos: pedidos.filter((pedido) => pedido.status !== "concluido").length,
+      concluidos: pedidos.filter((pedido) => pedido.status === "concluido").length,
+    }),
+    [pedidos]
+  );
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 pb-8">
@@ -187,13 +303,13 @@ export default function MeusPedidos() {
           <div>
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
               <ClipboardList className="h-4 w-4" />
-              Meus Pedidos
+              Pedidos
             </div>
             <h1 className="mt-2 text-2xl font-black text-foreground md:text-3xl">
-              Acompanhe suas listas no Supabase
+              Acompanhe os pedidos da sua empresa
             </h1>
             <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-              Operador: <span className="font-semibold text-foreground">{pessoa || "-"}</span> · {empresa} · {flag.toUpperCase()}
+              Operador: <span className="font-semibold text-foreground">{nomeLogado || "-"}</span> · {empresa} · {flag.toUpperCase()}
             </p>
           </div>
 
@@ -222,6 +338,81 @@ export default function MeusPedidos() {
             <div className="mt-2 text-3xl font-black text-emerald-700">{stats.concluidos}</div>
           </div>
         </div>
+
+        <div className="mt-4 rounded-2xl border border-border bg-background p-4">
+          <div className="grid gap-4 lg:grid-cols-[1.3fr_1fr_1.2fr]">
+            <div className="space-y-3">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Pessoa</div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEscopoPessoa("todos")}
+                  className={getFiltroButtonClasses(escopoPessoa === "todos")}
+                >
+                  Todos
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEscopoPessoa("meus")}
+                  disabled={!nomeLogado}
+                  className={getFiltroButtonClasses(escopoPessoa === "meus", !nomeLogado)}
+                >
+                  Meus pedidos
+                </button>
+              </div>
+              <Input
+                value={buscaPessoa}
+                onChange={(event) => setBuscaPessoa(event.target.value)}
+                placeholder="Filtrar por pessoa"
+                disabled={escopoPessoa === "meus"}
+                className="h-11 rounded-xl border-border"
+              />
+            </div>
+
+            <div className="space-y-3">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Produto</div>
+              <Input
+                value={buscaProduto}
+                onChange={(event) => setBuscaProduto(event.target.value)}
+                placeholder="Buscar produto"
+                className="h-11 rounded-xl border-border"
+              />
+            </div>
+
+            <div className="space-y-3">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Periodo</div>
+              <div className="flex flex-wrap gap-2">
+                {PERIODO_OPCOES.map((opcao) => (
+                  <button
+                    key={opcao.value}
+                    type="button"
+                    onClick={() => setPeriodo(opcao.value)}
+                    className={getFiltroButtonClasses(periodo === opcao.value)}
+                  >
+                    {opcao.label}
+                  </button>
+                ))}
+              </div>
+
+              {periodo === "intervalo" && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Input
+                    type="date"
+                    value={dataInicio}
+                    onChange={(event) => setDataInicio(event.target.value)}
+                    className="h-11 rounded-xl border-border"
+                  />
+                  <Input
+                    type="date"
+                    value={dataFim}
+                    onChange={(event) => setDataFim(event.target.value)}
+                    className="h-11 rounded-xl border-border"
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       </section>
 
       {error && (
@@ -244,12 +435,15 @@ export default function MeusPedidos() {
             <PackageCheck className="mx-auto h-10 w-10 text-muted-foreground" />
             <h2 className="mt-4 text-lg font-bold text-foreground">Nenhum pedido encontrado</h2>
             <p className="mt-2 text-sm text-muted-foreground">
-              Assim que voce enviar uma lista para conferencia, ela aparece aqui.
+              {filtrosAtivos
+                ? "Ajuste os filtros e tente novamente."
+                : "Assim que houver pedidos neste escopo, eles aparecem aqui."}
             </p>
           </div>
         ) : (
           pedidos.map((pedido) => {
             const status = getStatusMeta(pedido.status);
+            const responsavel = pedido.listeiro || pedido.pessoa || "-";
 
             return (
               <article key={pedido.id} className="rounded-3xl border border-border bg-card p-5 shadow-sm">
@@ -260,6 +454,12 @@ export default function MeusPedidos() {
                       <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-bold ${status.classes}`}>
                         {status.label}
                       </span>
+                      {pessoaBadgeAtiva && (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-xs font-bold text-sky-800">
+                          <UserRound className="h-3.5 w-3.5" />
+                          {responsavel}
+                        </span>
+                      )}
                     </div>
 
                     <div className="mt-3 flex flex-col gap-2 text-sm text-muted-foreground md:flex-row md:flex-wrap md:items-center md:gap-4">
@@ -267,10 +467,12 @@ export default function MeusPedidos() {
                         <Clock3 className="h-4 w-4" />
                         Criado em {formatDateTime(pedido.createdAt)}
                       </span>
-                      <span className="inline-flex items-center gap-2">
-                        <UserRound className="h-4 w-4" />
-                        Listeiro {pedido.listeiro || pedido.pessoa || "-"}
-                      </span>
+                      {!pessoaBadgeAtiva && (
+                        <span className="inline-flex items-center gap-2">
+                          <UserRound className="h-4 w-4" />
+                          Listeiro {responsavel}
+                        </span>
+                      )}
                       {pedido.status === "concluido" && (
                         <span className="inline-flex items-center gap-2">
                           <CheckCircle2 className="h-4 w-4" />

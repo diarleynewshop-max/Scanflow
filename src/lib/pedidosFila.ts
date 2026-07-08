@@ -91,6 +91,15 @@ export interface MeuPedidoResumo {
   resumoPendente: number;
 }
 
+export interface ListarPedidosFiltro {
+  empresa: string;
+  flag: string;
+  pessoa?: string;
+  dataInicio?: string;
+  dataFim?: string;
+  produtoBusca?: string;
+}
+
 export interface FecharConferenciaItemPayload {
   codigo: string;
   sku?: string | null;
@@ -355,59 +364,82 @@ function mapMeuPedido(row: MeuPedidoRow): MeuPedidoResumo {
   };
 }
 
+const MEU_PEDIDO_SELECT_COLUMNS = [
+  'id',
+  'titulo',
+  'pessoa',
+  'listeiro',
+  'conferente',
+  'status',
+  'created_at',
+  'updated_at',
+  'data_conferencia',
+  'total_itens',
+  'resumo_separado',
+  'resumo_nao_tem',
+  'resumo_parcial',
+  'resumo_pendente',
+].join(',');
+
+export async function listarPedidos(f: ListarPedidosFiltro): Promise<MeuPedidoResumo[]> {
+  if (!isSupabaseConfigured) return [];
+
+  let query = supabase
+    .from('pedidos')
+    .select(MEU_PEDIDO_SELECT_COLUMNS)
+    .eq('empresa', normalizarEmpresa(f.empresa))
+    .eq('flag', normalizarFlag(f.flag))
+    .order('created_at', { ascending: false });
+
+  const pessoa = String(f.pessoa ?? '').trim();
+  if (pessoa) {
+    query = query.or(`pessoa.eq.${pessoa},listeiro.eq.${pessoa}`);
+  }
+
+  const dataInicio = String(f.dataInicio ?? '').trim();
+  if (dataInicio) {
+    query = query.gte('created_at', `${dataInicio}T00:00:00`);
+  }
+
+  const dataFim = String(f.dataFim ?? '').trim();
+  if (dataFim) {
+    query = query.lte('created_at', `${dataFim}T23:59:59`);
+  }
+
+  const produtoBusca = String(f.produtoBusca ?? '').trim();
+  if (produtoBusca) {
+    const like = `%${produtoBusca}%`;
+    const { data: itens, error: errItens } = await supabase
+      .from('pedido_itens')
+      .select('pedido_id')
+      .or(`codigo.ilike.${like},sku.ilike.${like},secao.ilike.${like}`);
+
+    if (errItens) throw errItens;
+
+    const ids = [...new Set((itens ?? []).map((item: { pedido_id: string }) => item.pedido_id).filter(Boolean))];
+    if (ids.length === 0) return [];
+
+    query = query.in('id', ids);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  return ((data ?? []) as unknown as MeuPedidoRow[]).map(mapMeuPedido);
+}
+
 export async function listarMeusPedidos(
   empresa: string,
   flag: string,
   pessoa: string
 ): Promise<MeuPedidoResumo[]> {
-  if (!isSupabaseConfigured) return [];
-
   const pessoaNormalizada = String(pessoa ?? '').trim();
   if (!pessoaNormalizada) return [];
 
-  const selectColumns = [
-    'id',
-    'titulo',
-    'pessoa',
-    'listeiro',
-    'conferente',
-    'status',
-    'created_at',
-    'updated_at',
-    'data_conferencia',
-    'total_itens',
-    'resumo_separado',
-    'resumo_nao_tem',
-    'resumo_parcial',
-    'resumo_pendente',
-  ].join(',');
-
-  const criarQuery = () =>
-    supabase
-      .from('pedidos')
-      .select(selectColumns)
-      .eq('empresa', normalizarEmpresa(empresa))
-      .eq('flag', normalizarFlag(flag))
-      .order('created_at', { ascending: false });
-
-  const [{ data: porPessoa, error: errorPessoa }, { data: porListeiro, error: errorListeiro }] = await Promise.all([
-    criarQuery().eq('pessoa', pessoaNormalizada),
-    criarQuery().eq('listeiro', pessoaNormalizada),
-  ]);
-
-  if (errorPessoa) throw errorPessoa;
-  if (errorListeiro) throw errorListeiro;
-
-  const pedidos = [...((porPessoa ?? []) as MeuPedidoRow[]), ...((porListeiro ?? []) as MeuPedidoRow[])]
-    .reduce<Map<string, MeuPedidoResumo>>((acc, row) => {
-      acc.set(row.id, mapMeuPedido(row));
-      return acc;
-    }, new Map());
-
-  return Array.from(pedidos.values()).sort((a, b) => {
-    const timeA = Date.parse(a.updatedAt ?? a.createdAt ?? '') || 0;
-    const timeB = Date.parse(b.updatedAt ?? b.createdAt ?? '') || 0;
-    return timeB - timeA;
+  return listarPedidos({
+    empresa,
+    flag,
+    pessoa: pessoaNormalizada,
   });
 }
 
