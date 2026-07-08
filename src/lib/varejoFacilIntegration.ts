@@ -173,34 +173,77 @@ const normalizarEmpresaVarejoFacil = (empresa?: string | null): VarejoFacilEmpre
   return "NEWSHOP";
 };
 
-// Base das Edge Functions do Supabase (erp-proxy/erp-image-proxy substituem as antigas
-// rotas /api/erp-proxy e /api/erp-image-proxy da Vercel — mesma URL/projeto do
-// VITE_SUPABASE_URL, so trocando o path).
+// Em producao, a consulta ERP volta para Vercel Functions (/api/*).
+// Em desenvolvimento, ainda permite usar Supabase Edge Functions como fallback.
 declare const __SUPABASE_URL_FALLBACK__: string;
+declare const __SUPABASE_FUNCTIONS_URL_FALLBACK__: string;
+declare const __SUPABASE_ANON_KEY_FALLBACK__: string;
 
 const getSupabaseFunctionsBase = (): string => {
-  // Na Vercel a var chega como SUPABASE_URL (sem VITE_), injetada em build como
-  // __SUPABASE_URL_FALLBACK__ pelo vite.config.ts. Sem esse fallback a URL virava
-  // relativa (/erp-proxy) e a Vercel devolvia o index.html (<!doctype>), quebrando
-  // o JSON.parse do lado do cliente.
   const supabaseUrl =
+    (import.meta.env.VITE_SUPABASE_FUNCTIONS_URL as string | undefined) ||
+    __SUPABASE_FUNCTIONS_URL_FALLBACK__ ||
     (import.meta.env.VITE_SUPABASE_URL as string | undefined) ||
     __SUPABASE_URL_FALLBACK__ ||
     "";
   return supabaseUrl ? `${supabaseUrl.replace(/\/$/, "")}/functions/v1` : "";
 };
 
+const getConfiguredErpProxyBase = (): string =>
+  ((import.meta.env.VITE_ERP_PROXY_BASE as string | undefined) || "").replace(/\/$/, "");
+
+const getErpProxyEndpoint = (name: "erp-proxy" | "erp-image-proxy"): string => {
+  const configuredBase = getConfiguredErpProxyBase();
+  if (configuredBase) return `${configuredBase}/${name}`;
+
+  const supabaseFunctionsBase = getSupabaseFunctionsBase();
+  if (import.meta.env.DEV && supabaseFunctionsBase) return `${supabaseFunctionsBase}/${name}`;
+
+  return `/api/${name}`;
+};
+
+const getSupabaseAnonKey = (): string =>
+  (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ||
+  __SUPABASE_ANON_KEY_FALLBACK__ ||
+  "";
+
+const getSupabaseFunctionHeaders = (): Record<string, string> => {
+  const anonKey = getSupabaseAnonKey();
+  const headers: Record<string, string> = { Accept: "application/json" };
+
+  if (anonKey) {
+    headers.apikey = anonKey;
+    headers.Authorization = `Bearer ${anonKey}`;
+  }
+
+  return headers;
+};
+
+const getHeadersForProxyEndpoint = (endpoint: string): Record<string, string> =>
+  endpoint.includes("/functions/v1/")
+    ? getSupabaseFunctionHeaders()
+    : { Accept: "application/json" };
+
 const fetchJson = async <T>(path: string, contexto: VarejoFacilLookupContext = {}) => {
   const empresa = normalizarEmpresaVarejoFacil(contexto.empresa);
-  const url = `${getSupabaseFunctionsBase()}/erp-proxy?empresa=${empresa.toLowerCase()}&path=${encodeURIComponent(path)}`;
+  const endpoint = getErpProxyEndpoint("erp-proxy");
+  const url = `${endpoint}?empresa=${empresa.toLowerCase()}&path=${encodeURIComponent(path)}`;
 
-  const response = await fetch(url, { headers: { Accept: "application/json" } });
+  const response = await fetch(url, { headers: getHeadersForProxyEndpoint(endpoint) });
 
   if (response.status === 404) return null;
+
+  const contentType = response.headers.get("content-type") || "";
+  const isJson = contentType.toLowerCase().includes("application/json");
 
   if (!response.ok) {
     const body = await response.text().catch(() => "");
     throw new Error(`Falha ao consultar ERP (${response.status})${body ? `: ${body}` : ""}`);
+  }
+
+  if (!isJson) {
+    const body = await response.text().catch(() => "");
+    throw new Error(`ERP proxy respondeu formato invalido (${contentType || "sem content-type"}) em ${url}: ${body.slice(0, 160)}`);
   }
 
   return (await response.json()) as T;
@@ -358,7 +401,7 @@ const resolverImagemProduto = (imagem: string | undefined, produtoId: number, co
 
   if (/^data:image\//i.test(imagemOuProduto)) return imagemOuProduto;
 
-  return `${getSupabaseFunctionsBase()}/erp-image-proxy?empresa=${empresa.toLowerCase()}&produtoId=${produtoId}&src=${encodeURIComponent(imagemOuProduto)}`;
+  return `${getErpProxyEndpoint("erp-image-proxy")}?empresa=${empresa.toLowerCase()}&produtoId=${produtoId}&src=${encodeURIComponent(imagemOuProduto)}`;
 };
 
 const isReferenciaImagemErpValida = (imagem: string | undefined): boolean =>
