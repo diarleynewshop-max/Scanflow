@@ -176,8 +176,17 @@ const normalizarEmpresaVarejoFacil = (empresa?: string | null): VarejoFacilEmpre
 // Base das Edge Functions do Supabase (erp-proxy/erp-image-proxy substituem as antigas
 // rotas /api/erp-proxy e /api/erp-image-proxy da Vercel — mesma URL/projeto do
 // VITE_SUPABASE_URL, so trocando o path).
+declare const __SUPABASE_URL_FALLBACK__: string;
+
 const getSupabaseFunctionsBase = (): string => {
-  const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined) || "";
+  // Na Vercel a var chega como SUPABASE_URL (sem VITE_), injetada em build como
+  // __SUPABASE_URL_FALLBACK__ pelo vite.config.ts. Sem esse fallback a URL virava
+  // relativa (/erp-proxy) e a Vercel devolvia o index.html (<!doctype>), quebrando
+  // o JSON.parse do lado do cliente.
+  const supabaseUrl =
+    (import.meta.env.VITE_SUPABASE_URL as string | undefined) ||
+    __SUPABASE_URL_FALLBACK__ ||
+    "";
   return supabaseUrl ? `${supabaseUrl.replace(/\/$/, "")}/functions/v1` : "";
 };
 
