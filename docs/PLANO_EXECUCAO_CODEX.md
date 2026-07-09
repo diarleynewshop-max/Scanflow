@@ -108,13 +108,13 @@ Codex responde com: arquivos alterados, resultado do build, e dúvidas se travar
 | ~~T1~~ | ~~Validar Dashboard Supabase × ClickUp~~ | — | **obsoleta** (ClickUp não existe mais no app) |
 | ~~T2~~ | ~~Backfill do histórico do ClickUp~~ | — | **obsoleta** (idem) |
 | **T3** | Reconstruir a página Dashboard lendo do Supabase (views `dashboard_*` já existem: `dashboard_diario`, `dashboard_semanal`, `dashboard_por_conferente`, `dashboard_por_secao`, `dashboard_item_frequencia`, `dashboard_pedidos_status`). Hoje a rota `/dashboard` mostra `EmManutencao`; a página antiga foi apagada (era código morto ClickUp). | G5 | **próxima após G5** |
-| **T4** | Reconstruir "Meus Pedidos" lendo `pedidos`/`pedido_itens` do Supabase (realtime). Rota `/meus-pedidos` removida do menu; página apagada. | G5 | pendente |
+| **T4** | Reconstruir "Meus Pedidos" lendo `pedidos`/`pedido_itens` do Supabase (realtime). Rota `/meus-pedidos` removida do menu; página apagada. | G5 | ✅ **feito** (2026-07-09, Codex): `MeusPedidos.tsx` focado no operador logado via `listarMeusPedidos(empresa, flag, nomeLogado)`, realtime + refresh manual; menu/sidebar/rota alinhados (`loja \|\| isPriv`); mantido `ProtectedRoute`. Rev. Claude ok |
 | ~~T5~~ | ~~Cortar ClickUp do código~~ | — | ✅ **feito por completo** em 2026-07-07 (ver seção 8) |
 | **T6** | `compras-erp-preload` (hoje cron no Trigger.dev) → pg_cron + Edge Function do Supabase | — | pendente |
 | **T7** | `/api/erp-proxy` e `/api/erp-image-proxy` (Vercel) → Edge Function; esvaziar `api/` | — | **revertida em 2026-07-08** por decisão do usuário; ERP fica na Vercel em produção |
 | **T8** | Limpar `trigger.config.ts`/env não usadas (sobra só `erp-foto-sync`, `expedicaoSync`, `comprasErpPreload` até T6) | T6 | pendente |
 | **T9** | Verificação final de custo (Vercel Function Invocations, Trigger runs) | T7, T8 | pendente |
-| **T10 (novo)** | Débito técnico da limpeza ClickUp: remover fisicamente o branch morto `fonte==='clickup'` em `Compras.tsx`/`useProdutosComprar.ts`/`comprasSupabase.ts`; renomear `enviarClickUp`/`getPayloadClickUp` em `ConferenceView.tsx` | — | baixa prioridade, cosmético |
+| **T10 (novo)** | Débito técnico da limpeza ClickUp: remover fisicamente o branch morto `fonte==='clickup'` em `Compras.tsx`/`useProdutosComprar.ts`/`comprasSupabase.ts`; renomear `enviarClickUp`/`getPayloadClickUp` em `ConferenceView.tsx` | — | **rename feito** (2026-07-09, Codex): `enviarClickUp`→`fecharConferencia`, `getPayloadClickUp`→`getPayloadConferencia` (4 ocorr.). Branch morto `fonte==='clickup'` **ainda pendente** |
 | **T11 (novo)** | Validar/consertar auth do ERP na Vercel: confirmar `/api/erp-proxy` em produção retornando JSON do ERP, sem 401/404/HTML no caminho de scan; se 401, corrigir formato de auth nos 4 proxies mantendo paridade | T7 revertida | **feito em 2026-07-08**: `scanflow-alpha.vercel.app` retornou JSON 200 para NEWSHOP/FACIL/SOYE em `codigos-auxiliares?q=id==...`, `produtos/{id}`, `precos` e `estoque`; sem mudança de auth necessária. `npm run build` verde; `npx tsc -p tsconfig.app.json --noEmit` ainda falha por débitos fora do ERP |
 
 **Guardrail de rollout:** mesmo em corte seco, cada G entra atrás de `npm run build` verde
@@ -394,3 +394,61 @@ após a limpeza. 3 erros de tsc pré-existentes, não relacionados, seguem em
   - `quantidade` pode vir como `quantity` em algumas origens — no `WebhookPayload` é
     `quantidade`; manter esse contrato.
   - RLS anon já permite insert (migration 009). Não precisa de service role no front.
+
+---
+
+## 9. Bloco C — Compras: pendentes, galpão, bug de carga (2026-07-09)
+
+> Origem: 6 pontos levantados pelo usuário. Itens 1/3 = Claude; 2/6 = Codex (feitos);
+> 4/5 = specs abaixo (Codex implementa, Claude revisa). Fonte 100% Supabase.
+
+| # | Tarefa | Quem | Status |
+|---|---|---|---|
+| **C0** | Bug "Compras não carrega nada" (NEWSHOP): filtro "Minhas seções" descartava item com `secao=null` (base recém-escaneada). Fix em `produtoCombinaSecao` (`Compras.tsx`): item sem seção passa a aparecer em "Minhas seções". | Claude | ✅ **feito** (build verde) |
+| **C1** | Botão "Editar Pendentes" (juntar + esconder já atendidos) | Codex | spec abaixo |
+| **C2** | Botão "Conferência Galpão" (2ª revisão do que está em Compras) | Codex | spec abaixo |
+| **C3** | `VITE_TRIGGER_API_KEY` faltando: sem ela a expedição (app do Rafael) e o `erp-foto-sync` não disparam (falha silenciosa). Documentar no `.env.example` e confirmar na Vercel. | Claude/usuário | doc feito; validar na Vercel |
+
+### SPEC C1 — Botão "Editar Pendentes" (juntar + filtrar já atendidos)
+
+- **Objetivo:** botão que consolida os itens pendentes e **esconde os que já foram
+  atendidos em um pedido posterior** ao pedido atual.
+- **Contexto:** modal antigo (`EditarPedentesModal`) apagado na limpeza do ClickUp (sem
+  histórico no git). Fonte = Supabase (`pedidos`/`pedido_itens`). Produto identifica-se por
+  `produto_key` (COD:/SKU:) — ver `produtoKey()` em `src/lib/comprasSupabase.ts`.
+- **Regra de "já atendido" (confirmada pelo usuário):** um item `pendente` de um pedido do
+  dia D só continua válido se o **mesmo `produto_key` NÃO tiver** nenhum `pedido_itens.status`
+  ≠ `pendente` (`separado`/`nao_tem`/`nao_tem_tudo`) em pedidos com data **estritamente > D**
+  (comparar por `data_conferencia`, ou `created_at` quando não houver conferência). Se teve
+  status resolvido depois de D → já foi tratado → sai da lista.
+- **Arquivos a tocar:** `src/lib/pedidosFila.ts` (nova `listarPendentesConsolidados(empresa,
+  flag)`), novo `src/components/EditarPendentesModal.tsx`, ligar botão em `src/pages/Compras.tsx`.
+- **Passos:** 1) buscar `pedido_itens.status='pendente'` (join no pedido p/ pegar data);
+  2) para cada `produto_key`, buscar o status mais recente em pedidos de data > D;
+  3) filtrar os que já foram resolvidos depois; 4) agrupar por `produto_key` (somar quantidade,
+  1 card por produto); 5) `npm run build` + `npx tsc -p tsconfig.app.json --noEmit`.
+- **Critério de aceite:** produto pendente do dia 10 que aparece `separado` num pedido do dia
+  12 **não** aparece; produto que só existe pendente aparece 1× (consolidado). Build verde.
+- **Fora de escopo:** não mexer no fluxo de conferência (bloco G); não criar rota `/api/*`.
+- **Riscos:** comparar por `produto_key` normalizado (não `codigo` cru); usar `>` estrito no
+  dia (não `>=`); paginação Supabase (default 1000 linhas) — buscar em lotes se preciso.
+
+### SPEC C2 — Botão "Conferência Galpão" (2ª revisão do que está em Compras)
+
+- **Objetivo:** tela/modal que lista **tudo que está em Compras** (`status in
+  ('todo','fazer_pedido')`) para uma segunda passada no galpão, confirmando se o item
+  realmente não tem, **antes** de virar pedido ao fornecedor.
+- **Contexto:** modal antigo (`ConferenciaGalpaoModal`) apagado (sem histórico no git). Ler de
+  `compras` (Supabase) por empresa do login. Reusar `fetchComprasSupabase` /
+  `atualizarStatusPorId` de `src/lib/comprasSupabase.ts`; filtro de seção reusa
+  `produtoCombinaSecao` de `Compras.tsx`.
+- **Arquivos a tocar:** novo `src/components/ConferenciaGalpaoModal.tsx`, botão em
+  `src/pages/Compras.tsx`.
+- **Passos:** 1) listar itens em Compras (foto/descrição/seção); 2) por item, ação rápida
+  "tem" (→ estoque: `produto_ruim` ou remove da fila) / "confirmado não tem" (→ `fazer_pedido`);
+  3) filtro por seção; 4) `npm run build` + `npx tsc -p tsconfig.app.json --noEmit`.
+- **Critério de aceite:** percorrer os itens pendentes de compra e mudar status; mudança
+  reflete em `compras` (realtime já assinado por `subscribeComprasSupabase`). Build verde.
+- **Fora de escopo:** não gerar PDF de pedido aqui (fluxo próprio já existe em `Compras.tsx`).
+- **Riscos:** confirmar os status-alvo com o usuário antes de finalizar o mapeamento de ações
+  (o "tem"/"não tem" → status é a única decisão de produto ainda aberta).

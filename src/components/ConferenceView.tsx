@@ -862,7 +862,7 @@ const ConferenceView = ({ onBack, empresa: empresaProp, flag: flagProp, modoDesk
     pendente: items.filter((i) => i.status === "pendente").length,
   });
 
-  const getPayloadClickUp = () => ({
+  const getPayloadConferencia = () => ({
     conferente,
     listeiro: listeiro || undefined,
     tempo: formatTime(elapsedSeconds),
@@ -880,7 +880,7 @@ const ConferenceView = ({ onBack, empresa: empresaProp, flag: flagProp, modoDesk
     })),
   });
 
-  const enviarClickUp = async () => {
+  const fecharConferencia = async () => {
     // Verifica se a conferência tem itens antes de enviar
     if (items.length === 0) {
       toast({
@@ -921,7 +921,7 @@ const ConferenceView = ({ onBack, empresa: empresaProp, flag: flagProp, modoDesk
       } else {
         // Conferência veio de arquivo importado (sem pedido no banco): cria um já concluído.
         await enviarConferenciaParaSupabase({
-          ...getPayloadClickUp(),
+          ...getPayloadConferencia(),
           empresa,
           flag,
           conferenceId,
@@ -1530,7 +1530,7 @@ const ConferenceView = ({ onBack, empresa: empresaProp, flag: flagProp, modoDesk
             </div>
           )}
           <button
-            onClick={enviarClickUp}
+            onClick={fecharConferencia}
             disabled={apenasVisualizar || sendStatus === "sending" || sendStatus === "sent"}
             title={apenasVisualizar ? "Abra em modo Separação para enviar" : undefined}
             className="h-11 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-all disabled:opacity-70 disabled:cursor-not-allowed"

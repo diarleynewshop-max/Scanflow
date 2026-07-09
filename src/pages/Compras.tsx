@@ -287,6 +287,10 @@ function produtoCombinaSecao(
 ): boolean {
   if (filtro === FILTRO_MINHAS_SECOES) {
     if (secoesCompras.length === 0) return true;
+    // Item ainda SEM secao (recem-escaneado, nao enriquecido pelo ERP) precisa
+    // aparecer para o comprador — e justamente o que ele tem que triar. Sem isso,
+    // uma base recem-importada (secao=null) fica invisivel em "Minhas secoes".
+    if (!normalizarFiltro(secao)) return true;
     return secoesCompras.some((minha) => secaoCombinaFiltro(secao, minha));
   }
   return secaoCombinaFiltro(secao, filtro);

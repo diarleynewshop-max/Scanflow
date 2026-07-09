@@ -36,7 +36,7 @@ const baseMenuItems = [
   { Icon: ScanBarcode,  label: "Escanear",    description: "Leia códigos e registre produtos",    path: "/scanner",                  accent: "hsl(var(--primary))"     },
   { Icon: BadgeDollarSign, label: "Consulta Preço", description: "Consulte varejo, atacado e grupo", path: "/consulta-preco", accent: "hsl(var(--warning))" },
   { Icon: ClipboardList, label: "Lista",       description: "Visualize e gerencie o histórico",    path: "/scanner?tab=list",          accent: "hsl(var(--success))"     },
-  { Icon: Package,      label: "Pedidos", description: "Acompanhe os pedidos da empresa",  path: "/meus-pedidos",              accent: "hsl(var(--indigo))"      },
+  { Icon: Package,      label: "Meus Pedidos", description: "Acompanhe o status dos seus pedidos",  path: "/meus-pedidos",              accent: "hsl(var(--indigo))"      },
   { Icon: GitCompare,   label: "Conferência", description: "Importe e confira listas do ERP",     path: "/scanner?tab=conference",    accent: "hsl(var(--destructive))" },
   { Icon: User,         label: "Perfil",      description: "Visualize seus dados de login",       path: null, accent: "hsl(var(--warning))" },
   { Icon: Settings,     label: "Configuração", description: "Tema, layout e Modo Leve", path: null, accent: "hsl(var(--indigo))" },
@@ -578,7 +578,7 @@ const Home = () => {
               const userFlag = loginSalvo?.flag ?? 'loja';
               if (label === 'Escanear' || label === 'Lista') return true;
               if (label === 'Conferência') return userFlag === 'cd';
-              if (label === 'Pedidos') return true;
+              if (label === 'Meus Pedidos') return userFlag === 'loja';
               return true; // Consulta Preço, Perfil, Configuração sempre visíveis
             })
             .map(({ Icon, label, description, path, accent }) => (
