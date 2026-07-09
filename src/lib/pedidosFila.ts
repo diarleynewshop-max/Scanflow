@@ -1,4 +1,5 @@
 import { isSupabaseConfigured, supabase } from './supabaseClient';
+import { produtoKey } from './comprasSupabase';
 
 const TRIGGER_API_KEY = import.meta.env.VITE_TRIGGER_API_KEY as string;
 const STORAGE_URL_MARKER = '/storage/v1/object/public/';
@@ -51,6 +52,25 @@ interface PedidoFilaItemRow {
   ordem: number | null;
 }
 
+interface PedidoBaseResumoRow {
+  id: string;
+  titulo: string | null;
+  created_at: string | null;
+  data_conferencia: string | null;
+}
+
+interface PedidoItemHistoricoRow {
+  id: string;
+  pedido_id: string;
+  codigo: string;
+  sku: string | null;
+  descricao: string | null;
+  secao: string | null;
+  quantidade_pedida: number | null;
+  status: 'separado' | 'nao_tem' | 'nao_tem_tudo' | 'pendente';
+  foto_url: string | null;
+}
+
 export interface PedidoParaConferencia {
   id: string;
   name: string;
@@ -91,6 +111,19 @@ export interface MeuPedidoResumo {
   resumoNaoTem: number;
   resumoParcial: number;
   resumoPendente: number;
+}
+
+export interface PendenteConsolidado {
+  produtoKey: string;
+  codigo: string;
+  sku: string;
+  descricao: string;
+  secao: string | null;
+  photo: string | null;
+  quantidadePendente: number;
+  ocorrencias: number;
+  ultimaData: string | null;
+  pedidoTitulos: string[];
 }
 
 export interface ListarPedidosFiltro {
@@ -243,6 +276,85 @@ function hashString(value: string): string {
     hash = ((hash << 5) + hash) ^ value.charCodeAt(i);
   }
   return (hash >>> 0).toString(16);
+}
+
+function formatDateKeySaoPaulo(value: string): string | null {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+
+  const year = parts.find((part) => part.type === 'year')?.value;
+  const month = parts.find((part) => part.type === 'month')?.value;
+  const day = parts.find((part) => part.type === 'day')?.value;
+  if (!year || !month || !day) return null;
+  return `${year}-${month}-${day}`;
+}
+
+function getPedidoDiaReferencia(row: PedidoBaseResumoRow): string | null {
+  const conferencia = String(row.data_conferencia ?? '').trim();
+  if (conferencia) return conferencia;
+  const createdAt = String(row.created_at ?? '').trim();
+  if (!createdAt) return null;
+  return formatDateKeySaoPaulo(createdAt);
+}
+
+async function fetchPedidosResumoAll(
+  empresa: string,
+  flag: string
+): Promise<PedidoBaseResumoRow[]> {
+  const acc: PedidoBaseResumoRow[] = [];
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('pedidos')
+      .select('id,titulo,created_at,data_conferencia')
+      .eq('empresa', normalizarEmpresa(empresa))
+      .eq('flag', normalizarFlag(flag))
+      .order('created_at', { ascending: false })
+      .range(from, from + 999);
+
+    if (error) throw error;
+
+    const rows = (data ?? []) as PedidoBaseResumoRow[];
+    acc.push(...rows);
+    if (rows.length < 1000) break;
+    from += 1000;
+  }
+
+  return acc;
+}
+
+async function fetchPedidoItensAll(pedidoIds: string[]): Promise<PedidoItemHistoricoRow[]> {
+  if (pedidoIds.length === 0) return [];
+
+  const acc: PedidoItemHistoricoRow[] = [];
+  for (const ids of chunk(pedidoIds, 200)) {
+    let from = 0;
+
+    while (true) {
+      const { data, error } = await supabase
+        .from('pedido_itens')
+        .select('id,pedido_id,codigo,sku,descricao,secao,quantidade_pedida,status,foto_url')
+        .in('pedido_id', ids)
+        .range(from, from + 999);
+
+      if (error) throw error;
+
+      const rows = (data ?? []) as PedidoItemHistoricoRow[];
+      acc.push(...rows);
+      if (rows.length < 1000) break;
+      from += 1000;
+    }
+  }
+
+  return acc;
 }
 
 function resolveConferenceId(payload: EnviarListaParaConferenciaPayload): string {
@@ -443,6 +555,94 @@ export async function listarMeusPedidos(
     empresa,
     flag,
     pessoa: pessoaNormalizada,
+  });
+}
+
+export async function listarPendentesConsolidados(
+  empresa: string,
+  flag: string
+): Promise<PendenteConsolidado[]> {
+  if (!isSupabaseConfigured) return [];
+
+  const pedidos = await fetchPedidosResumoAll(empresa, flag);
+  if (pedidos.length === 0) return [];
+
+  const pedidosPorId = new Map(pedidos.map((pedido) => [pedido.id, pedido] as const));
+  const itens = await fetchPedidoItensAll(pedidos.map((pedido) => pedido.id));
+  if (itens.length === 0) return [];
+
+  const ultimoResolvidoPorProduto = new Map<string, string>();
+
+  for (const item of itens) {
+    if (item.status === 'pendente') continue;
+
+    const key = produtoKey(item.codigo, item.sku);
+    if (!key) continue;
+
+    const pedido = pedidosPorId.get(item.pedido_id);
+    if (!pedido) continue;
+
+    const dia = getPedidoDiaReferencia(pedido);
+    if (!dia) continue;
+
+    const anterior = ultimoResolvidoPorProduto.get(key);
+    if (!anterior || dia > anterior) {
+      ultimoResolvidoPorProduto.set(key, dia);
+    }
+  }
+
+  const agrupados = new Map<string, PendenteConsolidado>();
+
+  for (const item of itens) {
+    if (item.status !== 'pendente') continue;
+
+    const key = produtoKey(item.codigo, item.sku);
+    if (!key) continue;
+
+    const pedido = pedidosPorId.get(item.pedido_id);
+    if (!pedido) continue;
+
+    const dia = getPedidoDiaReferencia(pedido);
+    if (!dia) continue;
+
+    const ultimoResolvido = ultimoResolvidoPorProduto.get(key);
+    if (ultimoResolvido && ultimoResolvido > dia) continue;
+
+    const existente = agrupados.get(key);
+    if (existente) {
+      existente.quantidadePendente += toInt(item.quantidade_pedida, 1);
+      existente.ocorrencias += 1;
+      if (!existente.descricao && item.descricao) existente.descricao = String(item.descricao).trim();
+      if (!existente.secao && item.secao) existente.secao = item.secao;
+      if (!existente.photo && item.foto_url) existente.photo = item.foto_url;
+      if (dia > String(existente.ultimaData ?? '')) existente.ultimaData = dia;
+      const titulo = String(pedido.titulo ?? '').trim();
+      if (titulo && !existente.pedidoTitulos.includes(titulo)) {
+        existente.pedidoTitulos.push(titulo);
+      }
+      continue;
+    }
+
+    agrupados.set(key, {
+      produtoKey: key,
+      codigo: String(item.codigo ?? '').trim(),
+      sku: String(item.sku ?? '').trim(),
+      descricao: String(item.descricao ?? '').trim() || String(item.codigo ?? '').trim(),
+      secao: item.secao ?? null,
+      photo: item.foto_url ?? null,
+      quantidadePendente: toInt(item.quantidade_pedida, 1),
+      ocorrencias: 1,
+      ultimaData: dia,
+      pedidoTitulos: String(pedido.titulo ?? '').trim() ? [String(pedido.titulo ?? '').trim()] : [],
+    });
+  }
+
+  return [...agrupados.values()].sort((a, b) => {
+    const dataA = a.ultimaData ?? '';
+    const dataB = b.ultimaData ?? '';
+    if (dataA !== dataB) return dataB.localeCompare(dataA);
+    if (a.quantidadePendente !== b.quantidadePendente) return b.quantidadePendente - a.quantidadePendente;
+    return a.descricao.localeCompare(b.descricao, 'pt-BR');
   });
 }
 

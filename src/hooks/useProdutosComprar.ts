@@ -57,6 +57,7 @@ interface UseProdutosComprarReturn {
   persistirDescricao: (produtoId: string, descricao: string) => void;
   persistirFoto: (produtoId: string, dataUrl: string) => void;
   marcarPedidoFeito: (produtoId: string) => Promise<void>;
+  atualizarStatus: (produtoId: string, status: CompraStatusApp) => Promise<void>;
   refetch: () => Promise<void>;
   like: (taskId: string) => Promise<void>;
   dislike: (taskId: string) => Promise<void>;
@@ -462,6 +463,28 @@ export const useProdutosComprar = (): UseProdutosComprarReturn => {
     setFonteState(nova);
   }, []);
 
+  const atualizarStatus = useCallback(async (produtoId: string, status: CompraStatusApp) => {
+    const anterior = produtos.find((p) => p.id === produtoId);
+    if (!anterior) return;
+
+    setProdutos((prev) =>
+      prev.map((p) => (p.id === produtoId ? { ...p, status } : p))
+    );
+
+    try {
+      if (fonte !== 'supabase') {
+        throw new Error('Atualizacao direta de status so existe no modo Supabase.');
+      }
+      await atualizarStatusPorId(produtoId, status);
+      await fetchProdutos(true);
+    } catch (err) {
+      setProdutos((prev) =>
+        prev.map((p) => (p.id === produtoId ? { ...p, status: anterior.status } : p))
+      );
+      throw err;
+    }
+  }, [fonte, fetchProdutos, produtos]);
+
   // Persiste a secao (vinda do ERP na primeira carga) no Supabase, para nao
   // precisar reconsultar o ERP so pela secao nas proximas vezes. Best-effort.
   const persistirSecao = useCallback((produtoId: string, secao: string) => {
@@ -570,6 +593,7 @@ export const useProdutosComprar = (): UseProdutosComprarReturn => {
     persistirDescricao,
     persistirFoto,
     marcarPedidoFeito,
+    atualizarStatus,
     refetch: () => fetchProdutos(true),
     like,
     dislike,

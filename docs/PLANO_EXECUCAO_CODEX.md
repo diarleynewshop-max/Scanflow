@@ -405,8 +405,8 @@ após a limpeza. 3 erros de tsc pré-existentes, não relacionados, seguem em
 | # | Tarefa | Quem | Status |
 |---|---|---|---|
 | **C0** | Bug "Compras não carrega nada" (NEWSHOP): filtro "Minhas seções" descartava item com `secao=null` (base recém-escaneada). Fix em `produtoCombinaSecao` (`Compras.tsx`): item sem seção passa a aparecer em "Minhas seções". | Claude | ✅ **feito** (build verde) |
-| **C1** | Botão "Editar Pendentes" (juntar + esconder já atendidos) | Codex | spec abaixo |
-| **C2** | Botão "Conferência Galpão" (2ª revisão do que está em Compras) | Codex | spec abaixo |
+| **C1** | Botão "Editar Pendentes" (juntar + esconder já atendidos) | Codex | ✅ **feito** (2026-07-09): `listarPendentesConsolidados` + `EditarPendentesModal`. Rev. Claude ok (regra `>` dia, formatos de data consistentes `date`↔`formatDateKeySaoPaulo`, paginação 1000+). Falta smoke test manual |
+| **C2** | Botão "Conferência Galpão" (2ª revisão do que está em Compras) | Codex | ✅ **feito** (2026-07-09): `ConferenciaGalpaoModal` + `atualizarStatus` (otimista+revert). TEM→`produto_bom`, NÃO TEM→`fazer_pedido`. Rev. Claude ok. Falta smoke test manual |
 | **C3** | `VITE_TRIGGER_API_KEY` faltando: sem ela a expedição (app do Rafael) e o `erp-foto-sync` não disparam (falha silenciosa). Documentar no `.env.example` e confirmar na Vercel. | Claude/usuário | doc feito; validar na Vercel |
 
 ### SPEC C1 — Botão "Editar Pendentes" (juntar + filtrar já atendidos)
@@ -444,11 +444,15 @@ após a limpeza. 3 erros de tsc pré-existentes, não relacionados, seguem em
   `produtoCombinaSecao` de `Compras.tsx`.
 - **Arquivos a tocar:** novo `src/components/ConferenciaGalpaoModal.tsx`, botão em
   `src/pages/Compras.tsx`.
-- **Passos:** 1) listar itens em Compras (foto/descrição/seção); 2) por item, ação rápida
-  "tem" (→ estoque: `produto_ruim` ou remove da fila) / "confirmado não tem" (→ `fazer_pedido`);
-  3) filtro por seção; 4) `npm run build` + `npx tsc -p tsconfig.app.json --noEmit`.
-- **Critério de aceite:** percorrer os itens pendentes de compra e mudar status; mudança
-  reflete em `compras` (realtime já assinado por `subscribeComprasSupabase`). Build verde.
+- **Mapeamento de ações (TRAVADO 2026-07-09 pelo usuário):**
+  - **"TEM" (achei no galpão)** → `produto_bom` (sai da fila de compra).
+  - **"NÃO TEM" (confirmado)** → `fazer_pedido` (segue pro fornecedor).
+- **Passos:** 1) listar itens em Compras (`status in ('todo','fazer_pedido')`, com
+  foto/descrição/seção); 2) por item, dois botões: TEM → `atualizarStatusPorId(id,
+  'produto_bom')`, NÃO TEM → `atualizarStatusPorId(id, 'fazer_pedido')`; 3) filtro por seção
+  reusando `produtoCombinaSecao`; 4) `npm run build` + `npx tsc -p tsconfig.app.json --noEmit`.
+- **Critério de aceite:** percorrer os itens e mudar status pelos 2 botões; mudança reflete
+  em `compras` (realtime já assinado por `subscribeComprasSupabase`). Build verde.
 - **Fora de escopo:** não gerar PDF de pedido aqui (fluxo próprio já existe em `Compras.tsx`).
-- **Riscos:** confirmar os status-alvo com o usuário antes de finalizar o mapeamento de ações
-  (o "tem"/"não tem" → status é a única decisão de produto ainda aberta).
+- **Riscos:** update otimista + revert em erro (mesmo padrão de `executarAcao` em
+  `useProdutosComprar.ts`); não remover a linha do banco, só mudar status.

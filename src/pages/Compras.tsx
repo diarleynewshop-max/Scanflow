@@ -24,6 +24,11 @@ import {
   baixarPdfNoNavegador,
   type ItemPedidoPdf,
 } from "@/lib/pedidoFornecedorPdf";
+import { EditarPendentesModal } from "@/components/EditarPendentesModal";
+import {
+  ConferenciaGalpaoModal,
+  type ConferenciaGalpaoItemView,
+} from "@/components/ConferenciaGalpaoModal";
 
 const PAGE_SIZE = 10;
 const ERP_BATCH_SIZE = 5;
@@ -329,6 +334,7 @@ function selecionarFotoProduto(
 const Compras = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const flagAtual = useMemo(() => obterLoginSalvo()?.flag ?? "loja", []);
   // Secoes atribuidas ao comprador no perfil (login.secoesCompras). Lido uma vez:
   // trocar de perfil recarrega a pagina, entao nao muda durante o uso da tela.
   const secoesCompras = useMemo(() => obterLoginSalvo()?.secoesCompras ?? [], []);
@@ -349,6 +355,9 @@ const Compras = () => {
   const [gerandoPedidos, setGerandoPedidos] = useState(false);
   const [baixandoPdfPedido, setBaixandoPdfPedido] = useState<string | null>(null);
   const [analiseAberta, setAnaliseAberta] = useState(false);
+  const [editarPendentesAberto, setEditarPendentesAberto] = useState(false);
+  const [galpaoAberto, setGalpaoAberto] = useState(false);
+  const [filtroSecaoGalpao, setFiltroSecaoGalpao] = useState(temSecoesCompras ? FILTRO_MINHAS_SECOES : "todos");
   // Item aberto no modal de detalhes (mostra codigo de barras + acoes).
   const [produtoDetalhe, setProdutoDetalhe] = useState<ProdutoComprar | null>(null);
   const [escolhaDireita, setEscolhaDireita] = useState(false);
@@ -375,6 +384,7 @@ const Compras = () => {
     persistirDescricao,
     persistirFoto,
     marcarPedidoFeito,
+    atualizarStatus,
   } = useProdutosComprar();
 
   useEffect(() => {
@@ -408,6 +418,22 @@ const Compras = () => {
     } finally {
       setAcaoEmAndamento(null);
     }
+  };
+
+  const marcarTemNoGalpao = (produto: ProdutoComprar) => {
+    void executarAcao(
+      `${produto.id}:GALPAO_TEM`,
+      () => atualizarStatus(produto.id, "produto_bom"),
+      "Produto marcado como TEM no galpao"
+    );
+  };
+
+  const marcarNaoTemNoGalpao = (produto: ProdutoComprar) => {
+    void executarAcao(
+      `${produto.id}:GALPAO_NAO_TEM`,
+      () => atualizarStatus(produto.id, "fazer_pedido"),
+      "Produto confirmado como NAO TEM no galpao"
+    );
   };
 
   // Antes de mandar "Fazer Pedido", confere no ERP se ja existe pedido de compra
@@ -694,6 +720,33 @@ const Compras = () => {
   const precoVendaAnalise = formatarPreco(produtoAnaliseErp?.precoVarejo);
   const velocidadeVendaAnalise = produtoAnalise ? formatarVelocidadeVenda(velocidadeVendas[produtoAnalise.id]) : null;
   const podeMostrarFotoAnalise = Boolean(produtoAnalise && fotoAnaliseSelecionada);
+  const produtosGalpaoBase = useMemo(() => {
+    return [...produtos.filter((produto) => produto.status === "todo" || produto.status === "fazer_pedido")].sort((a, b) => (
+      Number(b.date_created || 0) - Number(a.date_created || 0)
+    ));
+  }, [produtos]);
+  const produtosGalpao = useMemo(
+    () => produtosGalpaoBase.filter((produto) => (
+      produtoCombinaSecao(produto.secao ?? produtosErp[produto.id]?.secao, filtroSecaoGalpao, secoesCompras)
+    )),
+    [filtroSecaoGalpao, produtosErp, produtosGalpaoBase, secoesCompras]
+  );
+  const produtoGalpao = produtosGalpao[0] ?? null;
+  const produtoGalpaoErp = produtoGalpao ? produtosErp[produtoGalpao.id] : null;
+  const fotoGalpaoSelecionada = produtoGalpao
+    ? selecionarFotoProduto(produtoGalpao, produtoGalpaoErp, fotosClickUp, imagemComErro)
+    : null;
+  const itemGalpaoAtual: ConferenciaGalpaoItemView | null = produtoGalpao
+    ? {
+        id: produtoGalpao.id,
+        codigo: produtoGalpao.codigo,
+        descricao: getDescricaoExibicao(produtoGalpao, produtoGalpaoErp),
+        secao: formatarSecao(produtoGalpao.secao ?? produtoGalpaoErp?.secao),
+        photo: fotoGalpaoSelecionada?.src ?? null,
+        status: produtoGalpao.status,
+        vezesPedido: produtoGalpao.vezesPedido,
+      }
+    : null;
 
   useEffect(() => {
     let cancelado = false;
@@ -706,10 +759,16 @@ const Compras = () => {
             ...(filtroSecaoAnalise === "todos" ? [] : produtosPendentesAnalise),
           ].filter((produto): produto is ProdutoComprar => Boolean(produto))
         : [];
+      const origemGalpao = galpaoAberto
+        ? [
+            produtoGalpao,
+            ...(filtroSecaoGalpao === "todos" ? [] : produtosGalpaoBase),
+          ].filter((produto): produto is ProdutoComprar => Boolean(produto))
+        : [];
       const origem = Array.from(
-        new Map([...origemTela, ...origemAnalise].map((produto) => [produto.id, produto])).values()
+        new Map([...origemTela, ...origemAnalise, ...origemGalpao].map((produto) => [produto.id, produto])).values()
       );
-      const limite = filtroSecao !== "todos" || (analiseAberta && filtroSecaoAnalise !== "todos") ? 25 : PAGE_SIZE;
+      const limite = filtroSecao !== "todos" || (analiseAberta && filtroSecaoAnalise !== "todos") || (galpaoAberto && filtroSecaoGalpao !== "todos") ? 25 : PAGE_SIZE;
       const erpAtual = produtosErpRef.current;
       const pendentes = origem
         .filter((produto) => {
@@ -802,8 +861,12 @@ const Compras = () => {
     empresa,
     filtroSecao,
     filtroSecaoAnalise,
+    filtroSecaoGalpao,
+    galpaoAberto,
     produtoAnalise,
+    produtoGalpao,
     produtosPaginados,
+    produtosGalpaoBase,
     produtosPendentesAnalise,
     produtosPorBuscaStatus,
     persistirSecao,
@@ -893,6 +956,7 @@ const Compras = () => {
   const filtrosAtivos = Boolean(searchTerm || filtroStatus !== "todos" || filtroSecao !== "todos" || ordenarMaisPedidos || ordenarMaisVendidos);
   const carregandoFiltroSecao = filtroSecao !== "todos" && produtosPorBuscaStatus.some((produto) => !produto.secao && !(produto.id in produtosErp));
   const carregandoFiltroSecaoAnalise = analiseAberta && filtroSecaoAnalise !== "todos" && produtosPendentesAnalise.some((produto) => !produto.secao && !(produto.id in produtosErp));
+  const carregandoFiltroSecaoGalpao = galpaoAberto && filtroSecaoGalpao !== "todos" && produtosGalpaoBase.some((produto) => !produto.secao && !(produto.id in produtosErp));
 
   const executarAnalise = async (
     acao: "DISLIKE" | "LIKE" | "FAZER_PEDIDO",
@@ -1065,6 +1129,25 @@ const Compras = () => {
             >
               <ShoppingCart className="h-4 w-4 mr-2" />
               Iniciar Analise
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setEditarPendentesAberto(true)}
+              disabled={loading}
+            >
+              <Filter className="h-4 w-4 mr-2" />
+              Editar Pendentes
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setFiltroSecaoGalpao(filtroSecao);
+                setGalpaoAberto(true);
+              }}
+              disabled={loading || produtosGalpaoBase.length === 0}
+            >
+              <Barcode className="h-4 w-4 mr-2" />
+              Conferencia Galpao
             </Button>
             <Button variant="outline" onClick={() => refetch()} disabled={loading}>
               <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
@@ -1394,6 +1477,35 @@ const Compras = () => {
           <p>{"Fluxo Compras: PENDENTE -> PRODUTOS RUIM | PODE SER QUE TEM NO GALPAO -> FAZER PEDIDO -> PEDIDO EM ANDAMENTO -> COMPRA REALIZADA -> CONCLUIDO"}</p>
         </div>
       </div>
+
+      <EditarPendentesModal
+        open={editarPendentesAberto}
+        onClose={() => setEditarPendentesAberto(false)}
+        empresa={empresa}
+        flag={flagAtual}
+      />
+
+      <ConferenciaGalpaoModal
+        open={galpaoAberto}
+        onClose={() => setGalpaoAberto(false)}
+        itemAtual={itemGalpaoAtual}
+        totalFiltrados={produtosGalpao.length}
+        totalBase={produtosGalpaoBase.length}
+        filtroSecao={filtroSecaoGalpao}
+        onFiltroSecaoChange={setFiltroSecaoGalpao}
+        secoesDisponiveis={secoesDisponiveis}
+        temSecoesCompras={temSecoesCompras}
+        minhasSecoesValue={FILTRO_MINHAS_SECOES}
+        minhasSecoesCount={secoesCompras.length}
+        carregandoFiltroSecao={carregandoFiltroSecaoGalpao}
+        acaoEmAndamento={Boolean(acaoEmAndamento)}
+        onTem={() => {
+          if (produtoGalpao) marcarTemNoGalpao(produtoGalpao);
+        }}
+        onNaoTem={() => {
+          if (produtoGalpao) marcarNaoTemNoGalpao(produtoGalpao);
+        }}
+      />
 
       {analiseAberta && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
