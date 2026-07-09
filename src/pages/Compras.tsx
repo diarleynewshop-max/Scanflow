@@ -426,7 +426,7 @@ const Compras = () => {
         .join("\n");
 
       return window.confirm(
-        `Já existe pedido de compra aberto no ERP para esse produto:\n\n${resumo}\n\nCriar mesmo assim a task de "Fazer Pedido" no ClickUp?`
+        `Já existe pedido de compra aberto no ERP para esse produto:\n\n${resumo}\n\nMarcar mesmo assim como "Fazer Pedido"?`
       );
     } catch (err) {
       console.error("[Compras][PedidoAberto] Checagem falhou", { produtoId, erro: err instanceof Error ? err.message : String(err) });
@@ -1048,7 +1048,7 @@ const Compras = () => {
               Voltar
             </Button>
             <h1 className="text-xl sm:text-3xl font-bold text-gray-900">Gestao de Compras</h1>
-            <p className="text-gray-600 mt-1">Puxando o ClickUp de Compras ({empresa})</p>
+            <p className="text-gray-600 mt-1">Itens de Compras ({empresa})</p>
             {ultimaAtualizacao && (
               <p className="text-xs text-gray-500 mt-1">
                 Ultima atualizacao: {ultimaAtualizacao.toLocaleString("pt-BR")}
@@ -1391,7 +1391,7 @@ const Compras = () => {
         </Card>
 
         <div className="text-center text-gray-500 text-sm mt-8">
-          <p>{"Fluxo ClickUp Compras: PENDENTE -> PRODUTOS RUIM | PODE SER QUE TEM NO GALPAO -> FAZER PEDIDO -> PEDIDO EM ANDAMENTO -> COMPRA REALIZADA -> CONCLUIDO"}</p>
+          <p>{"Fluxo Compras: PENDENTE -> PRODUTOS RUIM | PODE SER QUE TEM NO GALPAO -> FAZER PEDIDO -> PEDIDO EM ANDAMENTO -> COMPRA REALIZADA -> CONCLUIDO"}</p>
         </div>
       </div>
 
