@@ -30,6 +30,7 @@ import {
   liberarPedido,
   liberarPedidoEmSegundoPlano,
   listarPedidosParaConferencia,
+  juntarPedidos,
   reservarPedido,
   type EmpresaKey,
   type FlagKey,
@@ -209,6 +210,9 @@ const ConferenceView = ({ onBack, empresa: empresaProp, flag: flagProp, modoDesk
   const [senha, setSenha] = useState(() => obterSenhaPadrao(empresaInicial as EmpresaKey, flagInicial as FlagKey));
   const [senhaErro, setSenhaErro] = useState(false);
   const [tasks, setTasks] = useState<PedidoParaConferencia[]>([]);
+  const [modoJuntar, setModoJuntar] = useState(false);
+  const [selecionadosJuntar, setSelecionadosJuntar] = useState<Set<string>>(new Set());
+  const [juntando, setJuntando] = useState(false);
   const [loadingTasks, setLoadingTasks] = useState(false);
   const [tasksErro, setTasksErro] = useState<string | null>(null);
   const [taskSelecionada, setTaskSelecionada] = useState<PedidoParaConferencia | null>(null);
@@ -414,6 +418,32 @@ const ConferenceView = ({ onBack, empresa: empresaProp, flag: flagProp, modoDesk
       setTasksErro(e.message ?? "Erro ao buscar tasks");
     } finally {
       setLoadingTasks(false);
+    }
+  };
+
+  const toggleSelecionadoJuntar = (id: string) => {
+    setSelecionadosJuntar((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const sairModoJuntar = () => { setModoJuntar(false); setSelecionadosJuntar(new Set()); };
+
+  const handleJuntar = async () => {
+    const ids = Array.from(selecionadosJuntar);
+    if (ids.length < 2) return;
+    setJuntando(true);
+    setTasksErro(null);
+    try {
+      await juntarPedidos(ids);
+      sairModoJuntar();
+      await recarregarTasks();
+    } catch (e: any) {
+      setTasksErro(e?.message ?? "Erro ao juntar pedidos");
+    } finally {
+      setJuntando(false);
     }
   };
 
@@ -1334,7 +1364,13 @@ const ConferenceView = ({ onBack, empresa: empresaProp, flag: flagProp, modoDesk
             <ArrowLeft className="w-4 h-4" /> Voltar
           </button>
           <div className="flex items-center gap-3">
-            <button onClick={recarregarTasks} disabled={loadingTasks}
+            {tasks.length >= 2 && (
+              <button onClick={() => (modoJuntar ? sairModoJuntar() : setModoJuntar(true))} disabled={juntando}
+                className={`flex items-center gap-1.5 text-xs font-semibold disabled:opacity-50 ${modoJuntar ? "text-destructive" : "text-primary"}`}>
+                {modoJuntar ? "✕ Cancelar" : "🔀 Juntar"}
+              </button>
+            )}
+            <button onClick={recarregarTasks} disabled={loadingTasks || modoJuntar}
               className="flex items-center gap-1.5 text-xs font-semibold text-primary disabled:opacity-50">
               <RefreshCw className={`w-3.5 h-3.5 ${loadingTasks ? "animate-spin" : ""}`} /> Atualizar
             </button>
@@ -1425,11 +1461,12 @@ const ConferenceView = ({ onBack, empresa: empresaProp, flag: flagProp, modoDesk
               <button
                 key={task.id}
                 onClick={() => {
+                  if (modoJuntar) { toggleSelecionadoJuntar(task.id); return; }
                   if (emAndamento) setModalConfirmAndamento(task);
                   else setModalModoAberturaTask(task);
                 }}
-                disabled={loadingJson}
-                className={`w-full text-left rounded-xl border p-4 flex items-center justify-between gap-3 active:scale-[0.99] transition-all disabled:opacity-60 ${emAndamento ? "border-warning/40 bg-warning/5 hover:border-warning/60" : "border-border bg-card hover:border-primary/40 hover:bg-primary/5"}`}
+                disabled={loadingJson || juntando}
+                className={`w-full text-left rounded-xl border p-4 flex items-center justify-between gap-3 active:scale-[0.99] transition-all disabled:opacity-60 ${selecionadosJuntar.has(task.id) ? "border-primary ring-2 ring-primary/50 bg-primary/5" : emAndamento ? "border-warning/40 bg-warning/5 hover:border-warning/60" : "border-border bg-card hover:border-primary/40 hover:bg-primary/5"}`}
               >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
@@ -1440,13 +1477,32 @@ const ConferenceView = ({ onBack, empresa: empresaProp, flag: flagProp, modoDesk
                   </div>
                   {data && <p className="text-xs text-muted-foreground mt-0.5">{data}</p>}
                 </div>
-                {isLoading
-                  ? <span className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin flex-shrink-0" />
-                  : <Play className={`w-4 h-4 flex-shrink-0 ${emAndamento ? "text-warning" : "text-primary"}`} />}
+                {modoJuntar
+                  ? <span className={`w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center text-[11px] font-bold ${selecionadosJuntar.has(task.id) ? "bg-primary border-primary text-primary-foreground" : "border-muted-foreground/40 text-transparent"}`}>✓</span>
+                  : isLoading
+                    ? <span className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                    : <Play className={`w-4 h-4 flex-shrink-0 ${emAndamento ? "text-warning" : "text-primary"}`} />}
               </button>
             );
           })}
         </div>
+
+        {modoJuntar && (
+          <div className="sticky bottom-0 left-0 right-0 pt-3 pb-1 bg-gradient-to-t from-background via-background to-transparent">
+            <button
+              onClick={handleJuntar}
+              disabled={selecionadosJuntar.size < 2 || juntando}
+              className="w-full py-3.5 rounded-xl bg-primary text-primary-foreground font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.99] transition-transform shadow-lg"
+            >
+              {juntando
+                ? <><span className="w-4 h-4 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" /> Juntando...</>
+                : <>🔀 Juntar {selecionadosJuntar.size} pedido{selecionadosJuntar.size === 1 ? "" : "s"} em um</>}
+            </button>
+            {selecionadosJuntar.size < 2 && (
+              <p className="text-[11px] text-muted-foreground text-center mt-1.5">Selecione ao menos 2 pedidos da mesma pessoa.</p>
+            )}
+          </div>
+        )}
       </div>
     );
   }

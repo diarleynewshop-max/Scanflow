@@ -716,6 +716,85 @@ export async function carregarItensDoPedido(pedidoId: string): Promise<PedidoFil
   }));
 }
 
+// Junta 2+ pedidos (da mesma empresa/flag) num só: move todos os itens pro pedido
+// mais antigo, apaga os demais e recalcula o resumo. Usado na conferência quando a
+// mesma pessoa tem várias listas. Retorna o id do pedido resultante.
+export async function juntarPedidos(
+  pedidoIds: string[]
+): Promise<{ pedidoId: string; totalItens: number; juntados: number }> {
+  if (!isSupabaseConfigured) throw new Error('Supabase nao configurado.');
+  const ids = Array.from(new Set((pedidoIds ?? []).map((s) => String(s ?? '').trim()).filter(Boolean)));
+  if (ids.length < 2) throw new Error('Selecione ao menos 2 pedidos para juntar.');
+
+  const { data, error } = await supabase
+    .from('pedidos')
+    .select('id,empresa,flag,listeiro,pessoa,titulo,status,created_at')
+    .in('id', ids);
+  if (error) throw error;
+
+  type PedidoMeta = {
+    id: string; empresa: string; flag: string; listeiro: string | null;
+    pessoa: string | null; titulo: string | null; status: string; created_at: string | null;
+  };
+  const pedidos = (data ?? []) as PedidoMeta[];
+  if (pedidos.length < 2) throw new Error('Pedidos nao encontrados para juntar.');
+
+  if (new Set(pedidos.map((p) => p.empresa)).size > 1 || new Set(pedidos.map((p) => p.flag)).size > 1) {
+    throw new Error('So da pra juntar pedidos da mesma empresa e tipo (loja/CD).');
+  }
+  if (pedidos.some((p) => p.status === 'concluido')) {
+    throw new Error('Nao da pra juntar pedidos ja concluidos.');
+  }
+  if (pedidos.some((p) => p.status === 'em_andamento')) {
+    throw new Error('Um dos pedidos esta em conferencia. Libere antes de juntar.');
+  }
+
+  // alvo = mais antigo; os outros viram fonte
+  const ordenados = [...pedidos].sort(
+    (a, b) => new Date(a.created_at ?? 0).getTime() - new Date(b.created_at ?? 0).getTime()
+  );
+  const alvo = ordenados[0];
+  const fontes = ordenados.slice(1);
+
+  // move os itens de cada fonte para o alvo
+  for (const fonte of fontes) {
+    const { error: mvErr } = await supabase
+      .from('pedido_itens')
+      .update({ pedido_id: alvo.id })
+      .eq('pedido_id', fonte.id);
+    if (mvErr) throw mvErr;
+  }
+
+  // apaga os pedidos fonte (já sem itens)
+  const { error: delErr } = await supabase
+    .from('pedidos')
+    .delete()
+    .in('id', fontes.map((f) => f.id));
+  if (delErr) throw delErr;
+
+  // conta itens do alvo e atualiza titulo/total/status
+  const { count, error: cntErr } = await supabase
+    .from('pedido_itens')
+    .select('id', { count: 'exact', head: true })
+    .eq('pedido_id', alvo.id);
+  if (cntErr) throw cntErr;
+  const totalItens = count ?? 0;
+
+  const pessoa = String(alvo.listeiro ?? alvo.pessoa ?? '').trim();
+  const novoTitulo = `${pessoa || String(alvo.titulo ?? '').trim() || 'Lista'} (juntado ${pedidos.length})`;
+  const { error: updErr } = await supabase
+    .from('pedidos')
+    .update({ titulo: novoTitulo, total_itens: totalItens, status: 'analisado' })
+    .eq('id', alvo.id);
+  if (updErr) throw updErr;
+
+  await supabase.rpc('recalcular_resumo_pedido', { p_pedido_id: alvo.id }).then(({ error: e }) => {
+    if (e) throw e;
+  });
+
+  return { pedidoId: alvo.id, totalItens, juntados: pedidos.length };
+}
+
 export async function enviarListaParaConferencia(
   payload: EnviarListaParaConferenciaPayload
 ): Promise<EnviarListaParaConferenciaResult | null> {

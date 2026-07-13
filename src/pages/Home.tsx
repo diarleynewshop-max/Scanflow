@@ -4,6 +4,7 @@ import type { LucideIcon } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useAuth, type Empresa, type LoginFlag, type LoginResult, type UsuarioLoginContext } from "@/hooks/useAuth";
 import { alterarMinhaSenha } from "@/lib/usuarios";
+import CriarContaModal from "@/components/CriarContaModal";
 import { hasAnyRoleAccess } from "@/components/ProtectedRoute";
 import { getLightModeEnabled, setLightModeEnabled } from "@/lib/lightMode";
 import { HISTORICO_COMPRAS_KEY, getHistoricoComprasEnabled } from "@/lib/historicoCompras";
@@ -235,6 +236,8 @@ const Home = () => {
   const [erroLogin, setErroLogin] = useState("");
   const [loginCarregando, setLoginCarregando] = useState(false);
   const [usuarioPendente, setUsuarioPendente] = useState<UsuarioLoginContext | null>(null);
+  const [mostrarCriarConta, setMostrarCriarConta] = useState(false);
+  const [msgCriarConta, setMsgCriarConta] = useState("");
 
   // Estados para configurações
   const [modoEscuro, setModoEscuro] = useState(() => {
@@ -990,12 +993,51 @@ const Home = () => {
                 {usuarioPendente ? "Entrar" : "Validar Login"}
               </button>
 
+              {msgCriarConta && (
+                <p style={{ fontSize: 12, color: "hsl(var(--success))", textAlign: "center", fontWeight: 700 }}>
+                  {msgCriarConta}
+                </p>
+              )}
+
+              <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "4px 0" }}>
+                <div style={{ flex: 1, height: 1, background: "hsl(var(--border))" }} />
+                <span style={{ fontSize: 10, color: "hsl(var(--muted-foreground))", fontFamily: "var(--font-mono)", letterSpacing: "0.1em" }}>OU</span>
+                <div style={{ flex: 1, height: 1, background: "hsl(var(--border))" }} />
+              </div>
+
+              <button onClick={() => { setMsgCriarConta(""); setMostrarCriarConta(true); }}
+                style={{
+                  width: "100%", height: 48, background: "hsl(var(--secondary))",
+                  color: "hsl(var(--foreground))", border: "1.5px solid hsl(var(--border))",
+                  borderRadius: 10, fontFamily: "var(--font-sans)", fontSize: 14, fontWeight: 700,
+                  cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                }}>
+                Criar conta
+              </button>
+
               <p style={{ fontSize: 11, color: "hsl(var(--muted-foreground))", textAlign: "center", marginTop: 8 }}>
                 A senha nao fica salva neste aparelho.
               </p>
             </div>
           </div>
         </div>
+      )}
+
+      {/* â”€â”€ Modal Criar Conta (auto-cadastro operador) â”€â”€ */}
+      {mostrarCriarConta && (
+        <CriarContaModal
+          modoDesktop={modoDesktop}
+          onClose={() => setMostrarCriarConta(false)}
+          onSuccess={(novoLogin) => {
+            setMostrarCriarConta(false);
+            setLoginUsuario(novoLogin);
+            setSenha("");
+            setUsuarioPendente(null);
+            setErroSenha(false);
+            setErroLogin("");
+            setMsgCriarConta("Conta criada! Agora é só entrar com seu login e senha.");
+          }}
+        />
       )}
 
        {/* â”€â”€ Modal de Perfil â”€â”€ */}

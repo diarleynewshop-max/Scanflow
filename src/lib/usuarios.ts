@@ -152,6 +152,34 @@ export async function redefinirSenhaUsuario(actor: ActorCredenciais, id: string,
   if (error) throw error;
 }
 
+export interface CriarContaPayload {
+  login: string;
+  nome: string;
+  senha: string;
+  empresas: Empresa[];
+  flagDefault?: LoginFlag;
+}
+
+// Auto-cadastro publico: qualquer um cria a propria conta, SEMPRE como operador
+// (a role e forcada no banco). Retorna o id novo. Lanca erro com "login ja existe"
+// quando o login esta em uso.
+export async function criarMinhaConta(payload: CriarContaPayload): Promise<string> {
+  assertSupabase();
+  const empresas = normalizarEmpresas(payload.empresas);
+  if (empresas.length === 0) {
+    throw new Error("Selecione ao menos uma empresa.");
+  }
+  const { data, error } = await supabase.rpc("criar_conta_operador", {
+    p_login: payload.login,
+    p_nome: payload.nome,
+    p_senha: payload.senha,
+    p_empresas: empresas,
+    p_flag_default: payload.flagDefault ?? "loja",
+  });
+  if (error) throw error;
+  return String(data ?? "");
+}
+
 // Self-service: o proprio dono da conta troca a senha (valida a atual no banco).
 // Retorna false se a senha atual estiver errada.
 export async function alterarMinhaSenha(login: string, senhaAtual: string, novaSenha: string): Promise<boolean> {
